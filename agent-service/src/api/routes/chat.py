@@ -312,6 +312,7 @@ async def chat(
                 channel_id=data.channel_id,
                 session_id=session.id,
                 persona_name=data.persona_name,
+                user_id=data.user_id,
             )
     
     # Get conversation history from session
@@ -530,7 +531,7 @@ async def delete_channel_session(
         try:
             await session_service.delete_session(
                 session_id=session_mapping.session_id,
-                user_id="channel",  # Channel sessions use "channel" as user_id
+                user_id=session_mapping.user_id,
                 app_name=session_mapping.persona_name,
             )
         except Exception as e:

@@ -23,6 +23,7 @@ class ChannelSession:
     channel_id: str
     session_id: str
     persona_name: str
+    user_id: str  # The user_id used when creating the Vertex AI session
     created_at: datetime
     updated_at: datetime
 
@@ -64,6 +65,7 @@ class ChannelSessionRepository:
             "channel_id": session.channel_id,
             "session_id": session.session_id,
             "persona_name": session.persona_name,
+            "user_id": session.user_id,
             "created_at": session.created_at,
             "updated_at": session.updated_at,
         }
@@ -83,6 +85,7 @@ class ChannelSessionRepository:
             channel_id=doc_data["channel_id"],
             session_id=doc_data["session_id"],
             persona_name=doc_data["persona_name"],
+            user_id=doc_data.get("user_id", "channel"),  # Default for backward compatibility
             created_at=created_at,
             updated_at=updated_at,
         )
@@ -122,6 +125,7 @@ class ChannelSessionRepository:
         channel_id: str,
         session_id: str,
         persona_name: str,
+        user_id: str,
     ) -> ChannelSession:
         """
         Store or update session mapping for a channel.
@@ -130,6 +134,7 @@ class ChannelSessionRepository:
             channel_id: Discord channel ID
             session_id: Vertex AI session ID
             persona_name: Name of the persona for this channel
+            user_id: The user_id used when creating the Vertex AI session
             
         Returns:
             Created or updated ChannelSession
@@ -140,12 +145,14 @@ class ChannelSessionRepository:
         now = datetime.now(timezone.utc)
         
         if existing.exists:
-            # Update existing
+            # Update existing - preserve the original user_id
+            existing_session = self._from_doc(existing.to_dict())
             session = ChannelSession(
                 channel_id=channel_id,
                 session_id=session_id,
                 persona_name=persona_name,
-                created_at=self._from_doc(existing.to_dict()).created_at,
+                user_id=existing_session.user_id,  # Keep original user_id
+                created_at=existing_session.created_at,
                 updated_at=now,
             )
         else:
@@ -154,12 +161,13 @@ class ChannelSessionRepository:
                 channel_id=channel_id,
                 session_id=session_id,
                 persona_name=persona_name,
+                user_id=user_id,
                 created_at=now,
                 updated_at=now,
             )
         
         await doc_ref.set(self._to_doc(session))
-        logger.info(f"Stored session {session_id} for channel {channel_id}")
+        logger.info(f"Stored session {session_id} for channel {channel_id} (user: {user_id})")
         return session
 
     async def delete_session(self, channel_id: str) -> bool:
