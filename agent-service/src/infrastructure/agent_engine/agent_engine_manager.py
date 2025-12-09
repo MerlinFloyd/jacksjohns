@@ -9,7 +9,6 @@ import logging
 from typing import Any
 
 import vertexai
-from vertexai import agent_engines
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +165,6 @@ class AgentEngineManager:
         self.location = location
         self._agent_engine_id = agent_engine_id
         self._client: vertexai.Client | None = None
-        self._agent_engine: Any = None  # The agent_engine object for session/memory operations
         self._initialized = False
         
     def _ensure_initialized(self) -> None:
@@ -195,22 +193,6 @@ class AgentEngineManager:
             return None
         return f"projects/{self.project_id}/locations/{self.location}/reasoningEngines/{self._agent_engine_id}"
     
-    def get_agent_engine(self) -> Any:
-        """
-        Get the Agent Engine object for session/memory operations.
-        
-        Returns:
-            The agent_engine object that provides create_session, query, etc. methods
-        """
-        if not self._agent_engine:
-            if not self._agent_engine_id:
-                raise ValueError(
-                    "Agent Engine not initialized. Call get_or_create_agent_engine() first."
-                )
-            self._ensure_initialized()
-            self._agent_engine = agent_engines.get(self._agent_engine_id)
-        return self._agent_engine
-    
     async def get_or_create_agent_engine(
         self,
         display_name: str = "jacksjohns-bot-engine",
@@ -232,8 +214,6 @@ class AgentEngineManager:
                 engine = self._client.agent_engines.get(
                     name=self.agent_engine_resource_name
                 )
-                # Cache the agent_engine object for session operations
-                self._agent_engine = agent_engines.get(self._agent_engine_id)
                 logger.info(f"Using existing Agent Engine: {self._agent_engine_id}")
                 return self._agent_engine_id
             except Exception as e:

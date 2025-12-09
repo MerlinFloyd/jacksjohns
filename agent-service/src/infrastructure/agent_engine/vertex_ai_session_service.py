@@ -4,13 +4,27 @@ Vertex AI Session Service implementation.
 This implements the SessionService interface using Vertex AI Agent Engine's
 Sessions feature for conversation history management.
 
-NOTE: Uses the agent_engine object methods (create_session, get_session, etc.)
-rather than the low-level client.agent_engines.sessions.* API.
+Based on official Google Cloud documentation:
+https://cloud.google.com/vertex-ai/generative-ai/docs/agent-engine/sessions/manage-sessions-api
+
+API signatures (from vertexai._genai.sessions.Sessions):
+- create(*, name: str, user_id: str, config=None) -> AgentEngineSessionOperation
+- get(*, name: str, config=None) -> Session
+- list(*, name: str, config=None) -> Iterator[Session]
+- delete(*, name: str, config=None) -> DeleteAgentEngineSessionOperation
+- events.append(*, name: str, author: str, invocation_id: str, timestamp: datetime, config=None)
+
+Where:
+- For create/list: name = agent_engine resource name
+- For get/delete/events.append: name = full session resource name
 """
 
+import datetime
 import logging
-from datetime import datetime
+import time
 from typing import Any
+
+import vertexai
 
 from ...domain.interfaces.session_service import Session, SessionEvent, SessionService
 from .agent_engine_manager import AgentEngineManager
@@ -34,51 +48,21 @@ class VertexAiSessionService(SessionService):
             agent_engine_manager: Manager for Agent Engine instance
         """
         self._manager = agent_engine_manager
-
-    def _get_agent_engine(self) -> Any:
-        """Get the Agent Engine object for session operations."""
-        return self._manager.get_agent_engine()
-
-    def _convert_dict_to_session(
-        self,
-        session_dict: dict[str, Any],
-        app_name: str,
-    ) -> Session:
-        """Convert API session dict response to our Session dataclass."""
-        # The agent_engine.create_session returns a dict like:
-        # {"id": "...", "user_id": "...", "app_name": "...", ...}
-        session_id = session_dict.get("id", "")
-        user_id = session_dict.get("user_id", "")
+        self._client: vertexai.Client | None = None
         
-        # Convert events if present
-        events = []
-        raw_events = session_dict.get("events", [])
-        if raw_events:
-            for event in raw_events:
-                content = event.get("content", {})
-                parts = content.get("parts", [])
-                text = ""
-                for part in parts:
-                    if isinstance(part, dict) and "text" in part:
-                        text += part["text"]
-                    elif hasattr(part, 'text'):
-                        text += part.text
-                
-                events.append(SessionEvent(
-                    role=content.get("role", "user"),
-                    content=text,
-                    timestamp=datetime.utcnow(),
-                ))
-        
-        return Session(
-            id=session_id,
-            user_id=user_id,
-            app_name=app_name,
-            events=events,
-            state=session_dict.get("state", {}) or {},
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
-        )
+    def _ensure_initialized(self) -> None:
+        """Ensure the client is initialized."""
+        if not self._client:
+            self._client = self._manager.get_client()
+            
+    def _get_agent_engine_name(self) -> str:
+        """Get the full Agent Engine resource name."""
+        name = self._manager.agent_engine_resource_name
+        if not name:
+            raise ValueError(
+                "Agent Engine not initialized. Call agent_engine_manager.get_or_create_agent_engine() first."
+            )
+        return name
 
     def _convert_to_session(
         self,
@@ -86,48 +70,75 @@ class VertexAiSessionService(SessionService):
         app_name: str,
     ) -> Session:
         """Convert API session response to our Session dataclass."""
-        # Handle dict responses (from create_session, etc.)
+        # Handle None
+        if api_session is None:
+            raise ValueError("API session is None")
+            
+        # Handle dict responses
         if isinstance(api_session, dict):
-            return self._convert_dict_to_session(api_session, app_name)
+            session_id = api_session.get("id", "")
+            if not session_id and "name" in api_session:
+                session_id = api_session["name"].split("/")[-1]
+            user_id = api_session.get("user_id", api_session.get("userId", ""))
+            state = api_session.get("session_state", api_session.get("sessionState", {})) or {}
+            return Session(
+                id=session_id,
+                user_id=user_id,
+                app_name=app_name,
+                events=[],
+                state=state,
+                created_at=datetime.datetime.utcnow(),
+                updated_at=datetime.datetime.utcnow(),
+            )
         
-        # Handle object responses
-        # Extract session ID from resource name or id attribute
-        if hasattr(api_session, 'id'):
-            session_id = api_session.id
-        elif hasattr(api_session, 'name'):
-            session_id = api_session.name.split("/")[-1]
+        # Handle pydantic/object responses (from vertexai._genai.types.common.Session)
+        # Extract session ID from resource name
+        session_name = getattr(api_session, 'name', None)
+        if session_name:
+            session_id = session_name.split("/")[-1]
         else:
             session_id = ""
         
         # Extract user_id from the session
         user_id = getattr(api_session, 'user_id', "")
         
-        # Convert events
-        events = []
-        if hasattr(api_session, 'events') and api_session.events:
-            for event in api_session.events:
-                if hasattr(event, 'content') and event.content:
-                    content_parts = event.content.parts if hasattr(event.content, 'parts') else []
-                    text = ""
-                    for part in content_parts:
-                        if hasattr(part, 'text'):
-                            text += part.text
-                    
-                    events.append(SessionEvent(
-                        role=event.content.role if hasattr(event.content, 'role') else "user",
-                        content=text,
-                        timestamp=datetime.utcnow(),
-                    ))
+        # Get session state
+        state = getattr(api_session, 'session_state', {}) or {}
         
         return Session(
             id=session_id,
             user_id=user_id,
             app_name=app_name,
-            events=events,
-            state=getattr(api_session, 'state', {}) or {},
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            events=[],
+            state=state,
+            created_at=datetime.datetime.utcnow(),
+            updated_at=datetime.datetime.utcnow(),
         )
+
+    def _wait_for_operation(self, operation: Any, timeout: float = 30.0) -> Any:
+        """
+        Wait for a long-running operation to complete.
+        
+        Args:
+            operation: The operation object (AgentEngineSessionOperation)
+            timeout: Maximum time to wait in seconds
+            
+        Returns:
+            The response from the operation
+        """
+        # If operation has response directly, return it
+        if hasattr(operation, 'response') and operation.response is not None:
+            return operation.response
+            
+        # If operation has done field, check if complete
+        if hasattr(operation, 'done') and operation.done:
+            if hasattr(operation, 'response'):
+                return operation.response
+            return operation
+            
+        # The SDK might handle waiting automatically, return the operation itself
+        # and let the caller handle it
+        return operation
 
     async def create_session(
         self,
@@ -146,12 +157,25 @@ class VertexAiSessionService(SessionService):
         Returns:
             Created session
         """
+        self._ensure_initialized()
+        
         try:
-            agent_engine = self._get_agent_engine()
+            agent_engine_name = self._get_agent_engine_name()
             
-            # Create session using agent_engine object method
-            # Per docs: agent_engine.create_session(user_id="...")
-            api_session = agent_engine.create_session(user_id=user_id)
+            # Create session via API
+            # Signature: create(*, name: str, user_id: str, config=None) -> AgentEngineSessionOperation
+            operation = self._client.agent_engines.sessions.create(
+                name=agent_engine_name,
+                user_id=user_id,
+            )
+            
+            # The operation returns with response field containing the session
+            # or we need to wait for it
+            api_session = self._wait_for_operation(operation)
+            
+            # If api_session is still an operation, get the response
+            if hasattr(api_session, 'response') and api_session.response is not None:
+                api_session = api_session.response
             
             session = self._convert_to_session(api_session, app_name)
             logger.info(
@@ -180,18 +204,17 @@ class VertexAiSessionService(SessionService):
         Returns:
             Session if found, None otherwise
         """
+        self._ensure_initialized()
+        
         try:
-            agent_engine = self._get_agent_engine()
+            agent_engine_name = self._get_agent_engine_name()
+            session_name = f"{agent_engine_name}/sessions/{session_id}"
             
-            # Get session using agent_engine object method
-            api_session = agent_engine.get_session(
-                user_id=user_id,
-                session_id=session_id,
+            # Signature: get(*, name: str, config=None) -> Session
+            api_session = self._client.agent_engines.sessions.get(
+                name=session_name,
             )
             
-            if not api_session:
-                return None
-                
             return self._convert_to_session(api_session, app_name)
             
         except Exception as e:
@@ -208,10 +231,6 @@ class VertexAiSessionService(SessionService):
         """
         Append an event to a session.
         
-        Note: The agent_engine doesn't have a direct append_event method.
-        Events are typically added via query/stream_query calls.
-        This method will fetch the current session state.
-        
         Args:
             session_id: Session ID
             user_id: Discord user ID  
@@ -221,18 +240,40 @@ class VertexAiSessionService(SessionService):
         Returns:
             Updated session
         """
+        self._ensure_initialized()
+        
         try:
-            # For now, just return the current session
-            # Events are appended automatically during query calls
+            agent_engine_name = self._get_agent_engine_name()
+            session_name = f"{agent_engine_name}/sessions/{session_id}"
+            
+            # Create the event content
+            role = "user" if event.role == "user" else "model"
+            
+            # Signature: events.append(*, name: str, author: str, invocation_id: str, 
+            #                          timestamp: datetime, config=None)
+            self._client.agent_engines.sessions.events.append(
+                name=session_name,
+                author=role,
+                invocation_id="1",
+                timestamp=datetime.datetime.now(tz=datetime.timezone.utc),
+                config={
+                    "content": {
+                        "role": role,
+                        "parts": [{"text": event.content}],
+                    },
+                },
+            )
+            
+            # Fetch updated session
             session = await self.get_session(session_id, user_id, app_name)
             if not session:
-                raise ValueError(f"Session {session_id} not found")
+                raise ValueError(f"Session {session_id} not found after append")
                 
-            logger.debug(f"Fetched session {session_id} (events managed by query)")
+            logger.debug(f"Appended event to session {session_id}")
             return session
             
         except Exception as e:
-            logger.error(f"Failed to get session {session_id}: {e}")
+            logger.error(f"Failed to append event to session {session_id}: {e}")
             raise
 
     async def list_sessions(
@@ -250,16 +291,21 @@ class VertexAiSessionService(SessionService):
         Returns:
             List of sessions
         """
+        self._ensure_initialized()
+        
         try:
-            agent_engine = self._get_agent_engine()
+            agent_engine_name = self._get_agent_engine_name()
             
-            # List sessions using agent_engine object method
-            response = agent_engine.list_sessions(user_id=user_id)
+            # Signature: list(*, name: str, config=None) -> Iterator[Session]
+            # To filter by user: config={"filter": "user_id=USER_ID"}
+            response = self._client.agent_engines.sessions.list(
+                name=agent_engine_name,
+                config={"filter": f'user_id="{user_id}"'},
+            )
             
             sessions = []
-            if response:
-                for api_session in response:
-                    sessions.append(self._convert_to_session(api_session, app_name))
+            for api_session in response:
+                sessions.append(self._convert_to_session(api_session, app_name))
             
             logger.debug(
                 f"Listed {len(sessions)} sessions for user={user_id}, persona={app_name}"
@@ -287,14 +333,14 @@ class VertexAiSessionService(SessionService):
         Returns:
             True if deleted, False if not found
         """
+        self._ensure_initialized()
+        
         try:
-            agent_engine = self._get_agent_engine()
+            agent_engine_name = self._get_agent_engine_name()
+            session_name = f"{agent_engine_name}/sessions/{session_id}"
             
-            # Delete session using agent_engine object method
-            agent_engine.delete_session(
-                user_id=user_id,
-                session_id=session_id,
-            )
+            # Signature: delete(*, name: str, config=None) -> DeleteAgentEngineSessionOperation
+            self._client.agent_engines.sessions.delete(name=session_name)
             logger.info(f"Deleted session {session_id}")
             return True
             
@@ -312,8 +358,8 @@ class VertexAiSessionService(SessionService):
         """
         Update session state.
         
-        Note: State updates typically happen during query calls.
-        This method fetches the current session.
+        Note: The API doesn't have a direct update method for state.
+        State is typically managed during query/streaming calls.
         
         Args:
             session_id: Session ID
@@ -324,9 +370,11 @@ class VertexAiSessionService(SessionService):
         Returns:
             Updated session
         """
+        self._ensure_initialized()
+        
         try:
-            # State is managed by the agent during query calls
-            # For now, just fetch and return current session
+            # Fetch and return current session
+            # State updates happen through agent query calls
             session = await self.get_session(session_id, user_id, app_name)
             if not session:
                 raise ValueError(f"Session {session_id} not found")
