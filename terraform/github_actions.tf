@@ -64,6 +64,13 @@ resource "google_project_iam_member" "github_actions_service_account_user" {
   member  = "serviceAccount:${google_service_account.github_actions.email}"
 }
 
+# Allow GitHub Actions to access secrets
+resource "google_project_iam_member" "github_actions_secret_accessor" {
+  project = var.project_id
+  role    = "roles/secretmanager.secretAccessor"
+  member  = "serviceAccount:${google_service_account.github_actions.email}"
+}
+
 # Output values for GitHub secrets
 output "wif_provider" {
   value       = google_iam_workload_identity_pool_provider.github.name
