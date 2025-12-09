@@ -63,7 +63,7 @@ jobs:
           region: ${{ env.REGION }}
           image: ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/agent-service:${{ github.sha }}
           flags: |
-            --service-account=agent-service@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
+            --service-account=agent-service-sa@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
             --allow-unauthenticated
             --min-instances=0
             --max-instances=10
@@ -83,7 +83,7 @@ jobs:
           region: ${{ env.REGION }}
           image: ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/discord-bot:${{ github.sha }}
           flags: |
-            --service-account=discord-bot@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
+            --service-account=discord-bot-sa@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
             --no-allow-unauthenticated
             --min-instances=1
             --max-instances=1

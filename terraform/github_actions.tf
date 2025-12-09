@@ -71,6 +71,20 @@ resource "google_project_iam_member" "github_actions_secret_accessor" {
   member  = "serviceAccount:${google_service_account.github_actions.email}"
 }
 
+# Allow GitHub Actions to act as the agent-service service account
+resource "google_service_account_iam_member" "github_actions_act_as_agent" {
+  service_account_id = google_service_account.agent_service.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.github_actions.email}"
+}
+
+# Allow GitHub Actions to act as the discord-bot service account
+resource "google_service_account_iam_member" "github_actions_act_as_discord_bot" {
+  service_account_id = google_service_account.discord_bot.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.github_actions.email}"
+}
+
 # Output values for GitHub secrets
 output "wif_provider" {
   value       = google_iam_workload_identity_pool_provider.github.name
