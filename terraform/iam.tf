@@ -33,3 +33,11 @@ resource "google_cloud_run_service_iam_member" "discord_bot_invoker" {
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.discord_bot.email}"
 }
+
+# Grant Firestore access to agent service account
+# Using datastore.user role which provides read/write access to Firestore
+resource "google_project_iam_member" "agent_firestore_user" {
+  project = var.project_id
+  role    = "roles/datastore.user"
+  member  = "serviceAccount:${google_service_account.agent_service.email}"
+}

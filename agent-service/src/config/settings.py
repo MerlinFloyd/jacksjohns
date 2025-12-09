@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     # Google Application Credentials (optional - can use ADC)
     google_application_credentials: str | None = None
 
+    # Firestore Configuration
+    firestore_collection: str = "personas"
+    use_firestore: bool = True  # Set to False to use in-memory storage
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

@@ -14,6 +14,10 @@ A Discord bot integrated with Google's Gemini AI for persona management and imag
     Discord API                    Vertex AI APIs
                                    - Gemini 2.5 Flash
                                    - Gemini 2.5 Flash Image
+                                          │
+                                          ▼
+                                   Firestore (Native)
+                                   - Persona persistence
 ```
 
 ## Features
@@ -50,6 +54,7 @@ A Discord bot integrated with Google's Gemini AI for persona management and imag
 ├── terraform/             # GCP Infrastructure as Code
 │   ├── main.tf           # Provider configuration
 │   ├── cloud_run.tf      # Cloud Run services
+│   ├── firestore.tf      # Firestore database
 │   ├── iam.tf            # Service accounts & permissions
 │   └── artifact_registry.tf  # Container registry
 │
@@ -240,6 +245,28 @@ bun run src/index.ts
 - **AI Models**: Gemini 2.5 Flash, Gemini 2.5 Flash Image
 - **Infrastructure**: Docker, GCP Cloud Run, Terraform
 - **Architecture**: Clean Architecture, SOLID principles
+- **Data Storage**: Firestore (Native mode) for persona persistence
+
+## Storage
+
+### Firestore
+Persona data is persisted in Firestore (Native mode). The service automatically:
+- Uses Firestore when available (production on Cloud Run)
+- Falls back to in-memory storage if Firestore is unavailable (with warning logs)
+
+**Firestore Collection Structure:**
+```
+personas/
+  └── {persona_name_lowercase}/
+      ├── name: string
+      ├── personality: string
+      ├── created_at: timestamp
+      └── updated_at: timestamp
+```
+
+**Configuration:**
+- `USE_FIRESTORE=true` (default) - Enable Firestore persistence
+- `FIRESTORE_COLLECTION=personas` (default) - Collection name for personas
 
 ## License
 
