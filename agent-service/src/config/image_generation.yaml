@@ -1,0 +1,27 @@
+# Image Generation Configuration
+# Defaults for Gemini 2.5 Flash Image model
+
+defaults:
+  # Supported aspect ratios: 1:1, 3:2, 2:3, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9
+  aspect_ratio: "1:1"
+  
+  # Output format
+  output_format: "png"
+  
+  # Maximum output tokens for image generation
+  max_output_tokens: 8192
+
+safety_settings:
+  # Safety filter method: PROBABILITY or SEVERITY
+  method: "PROBABILITY"
+  
+  # Categories to filter
+  categories:
+    - category: "HARM_CATEGORY_DANGEROUS_CONTENT"
+      threshold: "BLOCK_MEDIUM_AND_ABOVE"
+    - category: "HARM_CATEGORY_HATE_SPEECH"
+      threshold: "BLOCK_MEDIUM_AND_ABOVE"
+    - category: "HARM_CATEGORY_HARASSMENT"
+      threshold: "BLOCK_MEDIUM_AND_ABOVE"
+    - category: "HARM_CATEGORY_SEXUALLY_EXPLICIT"
+      threshold: "BLOCK_MEDIUM_AND_ABOVE"

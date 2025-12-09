@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  agent-service:
+    build:
+      context: ./agent-service
+      dockerfile: Dockerfile
+    container_name: agent-service
+    ports:
+      - "8000:8000"
+    environment:
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - GCP_REGION=${GCP_REGION}
+      - GEMINI_MODEL=${GEMINI_MODEL}
+      - GEMINI_IMAGE_MODEL=${GEMINI_IMAGE_MODEL}
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
+      - AGENT_SERVICE_PORT=8000
+      - AGENT_SERVICE_HOST=0.0.0.0
+    volumes:
+      - ./credentials.json:/app/credentials.json:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - app-network
+
+  discord-bot:
+    build:
+      context: ./discord-bot
+      dockerfile: Dockerfile
+    container_name: discord-bot
+    environment:
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+      - DISCORD_APPLICATION_ID=${DISCORD_APPLICATION_ID}
+      - AGENT_SERVICE_URL=http://agent-service:8000
+    depends_on:
+      agent-service:
+        condition: service_healthy
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

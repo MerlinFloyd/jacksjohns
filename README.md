@@ -1,1 +1,189 @@
-# jacksjohns
+# Discord Bot + AI Agent Service
+
+A Discord bot integrated with Google's Gemini AI for persona management and image generation.
+
+## Architecture
+
+```
+┌─────────────────────┐         ┌─────────────────────┐
+│   Discord Bot       │  HTTP   │   Python Agent      │
+│   (TypeScript/Bun)  │◄───────►│   Service (FastAPI) │
+└─────────────────────┘  REST   └─────────────────────┘
+         │                               │
+         ▼                               ▼
+    Discord API                    Vertex AI APIs
+                                   - Gemini 2.5 Flash
+                                   - Gemini 2.5 Flash Image
+```
+
+## Features
+
+### Implemented (Features 1-3)
+- **Create AI Persona**: `/persona create <name> <personality>` - Create custom AI personalities
+- **List/Edit Personas**: `/persona list`, `/persona edit <name> <field> <value>` - Manage personas
+- **Image Generation**: `/imagine <prompt>` - Generate images using Gemini 2.5 Flash Image
+
+### Planned (Features 4-5)
+- **Chat Channel Integration**: Assign bot to a channel for AI conversations
+- **Voice Chat**: Real-time voice conversations using Vertex AI Live API
+
+## Project Structure
+
+```
+├── agent-service/          # Python FastAPI service
+│   ├── src/
+│   │   ├── api/           # REST API routes
+│   │   ├── config/        # Configuration
+│   │   ├── domain/        # Core business logic (Clean Architecture)
+│   │   └── infrastructure/# External service integrations
+│   ├── Dockerfile
+│   └── requirements.txt
+│
+├── discord-bot/           # TypeScript/Bun Discord bot
+│   ├── src/
+│   │   ├── commands/      # Slash command handlers
+│   │   ├── services/      # Agent service client
+│   │   └── types/         # TypeScript types
+│   ├── Dockerfile
+│   └── package.json
+│
+├── terraform/             # GCP Infrastructure as Code
+│   ├── main.tf           # Provider configuration
+│   ├── cloud_run.tf      # Cloud Run services
+│   ├── iam.tf            # Service accounts & permissions
+│   └── artifact_registry.tf  # Container registry
+│
+├── docker-compose.yml     # Local development orchestration
+├── build.sh              # Build and run script
+└── credentials.json      # GCP service account key (gitignored)
+```
+
+## Prerequisites
+
+- [Bun](https://bun.sh/) runtime (for Discord bot)
+- Python 3.10+ (for Agent service)
+- Docker & Docker Compose
+- GCP Project with Vertex AI enabled
+- Discord Application with Bot Token
+
+## Setup
+
+### 1. Configure Environment Variables
+
+Copy the example environment file and fill in your values:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and set:
+- `DISCORD_BOT_TOKEN` - Your Discord bot token
+- `DISCORD_APPLICATION_ID` - Your Discord application ID
+- `GCP_PROJECT_ID` - Your Google Cloud project ID
+
+### 2. GCP Authentication
+
+Ensure you have a service account key at `./credentials.json` with Vertex AI permissions.
+
+Or authenticate using gcloud CLI:
+```bash
+gcloud auth application-default login
+gcloud config set project YOUR_PROJECT_ID
+```
+
+### 3. Build and Run
+
+Using the build script:
+```bash
+# Build Docker images
+./build.sh build
+
+# Start services
+./build.sh up
+
+# View logs
+./build.sh logs
+
+# Stop services
+./build.sh down
+```
+
+Or using docker-compose directly:
+```bash
+docker compose up --build
+```
+
+## API Endpoints (Agent Service)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/api/personas` | POST | Create persona |
+| `/api/personas` | GET | List all personas |
+| `/api/personas/{name}` | GET | Get persona by name |
+| `/api/personas/{name}` | PATCH | Update persona |
+| `/api/personas/{name}` | DELETE | Delete persona |
+| `/api/images/generate` | POST | Generate image (JSON response) |
+| `/api/images/generate/raw` | POST | Generate image (raw bytes) |
+
+## Discord Commands
+
+| Command | Description |
+|---------|-------------|
+| `/persona create <name> <personality>` | Create a new AI persona |
+| `/persona list` | List all personas |
+| `/persona edit <name> <field> <value>` | Edit an existing persona |
+| `/imagine <prompt> [aspect_ratio]` | Generate an image from text |
+
+## Deployment to GCP
+
+### Using Terraform
+
+1. Initialize Terraform:
+   ```bash
+   cd terraform
+   cp terraform.tfvars.example terraform.tfvars
+   # Edit terraform.tfvars with your values
+   terraform init
+   ```
+
+2. Review and apply:
+   ```bash
+   terraform plan
+   terraform apply
+   ```
+
+### Manual Deployment
+
+1. Build and push images to Artifact Registry
+2. Deploy to Cloud Run
+
+## Development
+
+### Running Locally (without Docker)
+
+**Agent Service:**
+```bash
+cd agent-service
+pip install -r requirements.txt
+python -m uvicorn src.main:app --reload --port 8000
+```
+
+**Discord Bot:**
+```bash
+cd discord-bot
+bun install
+bun run src/index.ts
+```
+
+## Technology Stack
+
+- **Discord Bot**: TypeScript, Bun, discord.js
+- **Agent Service**: Python 3.12, FastAPI, google-genai
+- **AI Models**: Gemini 2.5 Flash, Gemini 2.5 Flash Image
+- **Infrastructure**: Docker, GCP Cloud Run, Terraform
+- **Architecture**: Clean Architecture, SOLID principles
+
+## License
+
+Private project.

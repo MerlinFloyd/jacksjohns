@@ -1,0 +1,15 @@
+# Terraform Variables - Copy to terraform.tfvars and fill in values
+
+project_id             = "jacks-johns"
+region                 = "us-central1"
+discord_bot_token      = "your_discord_bot_token_here"
+discord_application_id = "1447797969423175742"
+gemini_model           = "gemini-2.5-flash"
+gemini_image_model     = "gemini-2.5-flash-image"
+
+# Docker images - leave empty until you've built and pushed images
+# Example after pushing:
+# agent_service_image = "us-central1-docker.pkg.dev/jacks-johns/discord-bot-repo/agent-service:latest"
+# discord_bot_image   = "us-central1-docker.pkg.dev/jacks-johns/discord-bot-repo/discord-bot:latest"
+agent_service_image = ""
+discord_bot_image   = ""
