@@ -70,6 +70,27 @@ class MemoryService(ABC):
         pass
 
     @abstractmethod
+    async def generate_memories_from_session(
+        self,
+        scope: MemoryScope,
+        session_id: str,
+    ) -> list[Memory]:
+        """
+        Generate memories from an existing Vertex AI session.
+        
+        This is more efficient than passing conversation history directly
+        as Vertex AI can access the session events directly.
+        
+        Args:
+            scope: Memory scope (persona + optional user)
+            session_id: Full session resource name or session ID
+            
+        Returns:
+            List of generated memories
+        """
+        pass
+
+    @abstractmethod
     async def retrieve_memories(
         self,
         scope: MemoryScope,

@@ -474,19 +474,18 @@ async def end_session(
     
     memories_generated = 0
     
-    # Generate memories from the conversation
-    if generate_memories and memory_service and session.events:
+    # Generate memories from the session using vertex_session_source
+    # This is more efficient as Vertex AI fetches session events directly
+    if generate_memories and memory_service:
         try:
-            conversation_history = session.get_conversation_history()
-            
-            # Generate user-specific memories
+            # Generate user-specific memories from the session
             user_scope = MemoryScope(
                 persona_name=persona_name,
                 user_id=user_id,
             )
-            memories = await memory_service.generate_memories(
+            memories = await memory_service.generate_memories_from_session(
                 scope=user_scope,
-                conversation_history=conversation_history,
+                session_id=session_id,
             )
             memories_generated = len(memories)
             

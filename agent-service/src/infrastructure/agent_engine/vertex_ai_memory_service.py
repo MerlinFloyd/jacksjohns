@@ -130,6 +130,70 @@ class VertexAiMemoryService(MemoryService):
             logger.error(f"Failed to generate memories: {e}")
             raise
 
+    async def generate_memories_from_session(
+        self,
+        scope: MemoryScope,
+        session_id: str,
+    ) -> list[Memory]:
+        """
+        Generate memories from an existing Vertex AI session.
+        
+        Uses vertex_session_source which allows Vertex AI to fetch
+        session events directly, more efficient than passing history manually.
+        
+        Args:
+            scope: Memory scope (persona + optional user)
+            session_id: Full session resource name or session ID
+            
+        Returns:
+            List of generated memories
+        """
+        self._ensure_initialized()
+        
+        try:
+            agent_engine_name = self._get_agent_engine_name()
+            
+            # Build full session resource name if only ID provided
+            if not session_id.startswith("projects/"):
+                session_name = f"{agent_engine_name}/sessions/{session_id}"
+            else:
+                session_name = session_id
+            
+            logger.info(f"Generating memories from session: {session_name}")
+            
+            # Call GenerateMemories API with vertex_session_source
+            operation = self._client.agent_engines.generate_memories(
+                name=agent_engine_name,
+                vertex_session_source={"session": session_name},
+                scope=scope.to_dict(),
+            )
+            
+            # The operation may be async - check for response
+            response = operation
+            if hasattr(operation, 'response') and operation.response is not None:
+                response = operation.response
+            
+            # Convert response to Memory objects
+            memories = []
+            if response:
+                # Response might have 'memories' attribute or be iterable
+                mem_list = getattr(response, 'memories', None) or []
+                for mem in mem_list:
+                    memories.append(Memory(
+                        id=getattr(mem, 'name', "") or "",
+                        fact=getattr(mem, 'fact', "") or str(mem),
+                        scope=scope.to_dict(),
+                    ))
+            
+            logger.info(
+                f"Generated {len(memories)} memories from session for scope={scope.to_dict()}"
+            )
+            return memories
+            
+        except Exception as e:
+            logger.error(f"Failed to generate memories from session: {e}")
+            raise
+
     async def retrieve_memories(
         self,
         scope: MemoryScope,
