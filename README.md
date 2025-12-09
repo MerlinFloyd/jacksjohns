@@ -196,7 +196,7 @@ The project includes a GitHub Actions workflow that automatically builds and dep
    - `wif_provider` - Workload Identity Provider
    - `wif_service_account` - Service Account email
 
-3. **Add GitHub Repository Secrets** (Settings → Secrets and variables → Actions):
+3. **Add GitHub Repository Secrets** (Settings → Secrets and variables → Actions → Secrets):
 
    | Secret Name | Value |
    |-------------|-------|
@@ -204,7 +204,15 @@ The project includes a GitHub Actions workflow that automatically builds and dep
    | `WIF_SERVICE_ACCOUNT` | Output from `terraform output wif_service_account` |
    | `DISCORD_APPLICATION_ID` | Your Discord Application ID (`1447797969423175742`) |
 
-4. **Push to main branch** to trigger deployment:
+4. **Add GitHub Repository Variables** (Settings → Secrets and variables → Actions → Variables):
+
+   | Variable Name | Value |
+   |---------------|-------|
+   | `AGENT_ENGINE_ID` | Your Agent Engine ID (e.g., `7839847759531212800`) |
+
+   Note: The Agent Engine ID is created automatically on first deployment if not set. Check the Cloud Run logs for the created ID, then add it as a variable to reuse the same instance.
+
+5. **Push to main branch** to trigger deployment:
    ```bash
    git add .
    git commit -m "Deploy to Cloud Run"
