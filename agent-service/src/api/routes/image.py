@@ -6,8 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from ..dependencies import get_image_generator
+from ..dependencies import get_image_generator, get_persona_repository
 from ...domain.interfaces.image_generator import ImageGenerator, ImageGenerationError
+from ...domain.interfaces.persona_repository import PersonaRepository
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/images", tags=["images"])
@@ -20,6 +21,10 @@ class ImageGenerateRequest(BaseModel):
     aspect_ratio: str = Field(
         default="1:1",
         description="Aspect ratio (1:1, 3:2, 2:3, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9)"
+    )
+    persona_name: str | None = Field(
+        None,
+        description="Optional persona name - if provided and persona has appearance, it will be prepended to prompt"
     )
 
 
@@ -39,11 +44,15 @@ VALID_ASPECT_RATIOS = {"1:1", "3:2", "2:3", "3:4", "4:3", "4:5", "5:4", "9:16", 
 async def generate_image_json(
     request: ImageGenerateRequest,
     generator: ImageGenerator = Depends(get_image_generator),
+    persona_repo: PersonaRepository = Depends(get_persona_repository),
 ) -> ImageGenerateResponse:
     """
     Generate an image from a text prompt.
     
     Returns the image as base64-encoded JSON response.
+    
+    If persona_name is provided and the persona has an appearance defined,
+    the appearance will be prepended to the prompt for better character consistency.
     
     Args:
         request: Image generation request
@@ -58,10 +67,18 @@ async def generate_image_json(
             detail=f"Invalid aspect ratio. Must be one of: {', '.join(VALID_ASPECT_RATIOS)}"
         )
     
+    # Build final prompt, optionally including persona appearance
+    final_prompt = request.prompt
+    if request.persona_name:
+        persona = await persona_repo.get_by_name(request.persona_name)
+        if persona and persona.appearance:
+            final_prompt = f"{persona.appearance}, {request.prompt}"
+            logger.info(f"Including persona appearance in prompt: {persona.appearance[:50]}...")
+    
     try:
-        logger.info(f"Generating image for prompt: {request.prompt[:50]}...")
+        logger.info(f"Generating image for prompt: {final_prompt[:50]}...")
         result = await generator.generate(
-            prompt=request.prompt,
+            prompt=final_prompt,
             aspect_ratio=request.aspect_ratio,
         )
         
@@ -89,11 +106,15 @@ async def generate_image_json(
 async def generate_image_raw(
     request: ImageGenerateRequest,
     generator: ImageGenerator = Depends(get_image_generator),
+    persona_repo: PersonaRepository = Depends(get_persona_repository),
 ) -> Response:
     """
     Generate an image from a text prompt.
     
     Returns the raw image bytes directly.
+    
+    If persona_name is provided and the persona has an appearance defined,
+    the appearance will be prepended to the prompt for better character consistency.
     
     Args:
         request: Image generation request
@@ -108,10 +129,18 @@ async def generate_image_raw(
             detail=f"Invalid aspect ratio. Must be one of: {', '.join(VALID_ASPECT_RATIOS)}"
         )
     
+    # Build final prompt, optionally including persona appearance
+    final_prompt = request.prompt
+    if request.persona_name:
+        persona = await persona_repo.get_by_name(request.persona_name)
+        if persona and persona.appearance:
+            final_prompt = f"{persona.appearance}, {request.prompt}"
+            logger.info(f"Including persona appearance in prompt: {persona.appearance[:50]}...")
+    
     try:
-        logger.info(f"Generating raw image for prompt: {request.prompt[:50]}...")
+        logger.info(f"Generating raw image for prompt: {final_prompt[:50]}...")
         result = await generator.generate(
-            prompt=request.prompt,
+            prompt=final_prompt,
             aspect_ratio=request.aspect_ratio,
         )
         

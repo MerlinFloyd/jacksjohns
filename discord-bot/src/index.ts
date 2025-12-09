@@ -2,6 +2,11 @@
  * Discord Bot Entry Point
  * 
  * Main file that initializes the Discord client and handles events.
+ * 
+ * Features:
+ * - Slash command handling with channel-based restrictions
+ * - Auto-chat in persona channels (messages sent directly to bot)
+ * - Startup sync to recreate missing persona channels
  */
 
 import {
@@ -10,11 +15,15 @@ import {
   REST,
   Routes,
   Events,
+  ChannelType,
+  TextChannel,
 } from "discord.js";
 
 import { config } from "./config/env";
 import { commands, handleCommand } from "./commands";
 import { logger } from "./utils/logger";
+import { agentClient } from "./services/agent-client";
+import { getPersonaForChannel, syncPersonaChannels, isAdminChannel } from "./utils/channel";
 
 // Health check server for Cloud Run
 const PORT = process.env.PORT || 8080;
@@ -77,15 +86,124 @@ async function registerCommands(): Promise<void> {
   }
 }
 
+// Handle auto-chat in persona channels
+async function handlePersonaChannelMessage(message: {
+  author: { id: string; bot: boolean; username: string };
+  member?: { displayName: string } | null;
+  channelId: string;
+  content: string;
+  reply: (options: { content: string; allowedMentions?: { repliedUser: boolean } }) => Promise<unknown>;
+}): Promise<void> {
+  // Ignore bot messages
+  if (message.author.bot) return;
+
+  // Check if this is a persona channel
+  const persona = await getPersonaForChannel(message.channelId);
+  if (!persona) return;
+
+  // Don't process messages that start with / (commands)
+  if (message.content.startsWith("/")) return;
+
+  // Don't process empty messages
+  if (!message.content.trim()) return;
+
+  try {
+    // Send to chat API with channel mode
+    const response = await agentClient.chat({
+      persona_name: persona.name,
+      user_id: message.author.id,
+      message: message.content,
+      user_display_name: message.member?.displayName || message.author.username,
+      is_channel_chat: true,
+      channel_id: message.channelId,
+    });
+
+    // Only respond if the LLM decided to
+    if (response.should_respond && response.response.trim()) {
+      await message.reply({
+        content: response.response,
+        allowedMentions: { repliedUser: false },
+      });
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(`Auto-chat error in channel ${message.channelId}:`, error);
+
+    // Try to interpret the error in character
+    try {
+      const errorInterpretation = await agentClient.interpretError(
+        errorMessage,
+        "Failed to process your message",
+        persona.name
+      );
+      await message.reply({
+        content: errorInterpretation,
+        allowedMentions: { repliedUser: false },
+      });
+    } catch {
+      // If error interpretation fails too, send generic message
+      await message.reply({
+        content: "I'm having trouble responding right now. Please try again later.",
+        allowedMentions: { repliedUser: false },
+      });
+    }
+  }
+}
+
 // Event handlers
-client.once(Events.ClientReady, (readyClient) => {
+client.once(Events.ClientReady, async (readyClient) => {
   isReady = true;
   logger.info("=".repeat(50));
   logger.info(`Discord bot ready!`);
   logger.info(`Logged in as: ${readyClient.user.tag}`);
   logger.info(`Application ID: ${config.discord.applicationId}`);
   logger.info(`Agent Service: ${config.agentService.url}`);
+  logger.info(`Admin Channel: #${config.discord.adminChannelName}`);
   logger.info("=".repeat(50));
+
+  // Sync persona channels for each guild
+  for (const guild of readyClient.guilds.cache.values()) {
+    try {
+      logger.info(`Syncing persona channels for guild: ${guild.name}`);
+      const personas = await agentClient.listPersonas();
+      const result = await syncPersonaChannels(guild, personas);
+
+      if (result.created.length > 0) {
+        logger.info(`Created ${result.created.length} missing channels: ${result.created.join(", ")}`);
+      }
+      if (result.errors.length > 0) {
+        logger.warn(`Channel sync errors:`, result.errors);
+
+        // Try to post errors to admin channel
+        const adminChannel = guild.channels.cache.find(
+          (ch) =>
+            ch.type === ChannelType.GuildText &&
+            isAdminChannel(ch.name, config.discord.adminChannelName)
+        ) as TextChannel | undefined;
+
+        if (adminChannel) {
+          const errorMessages = result.errors
+            .map((e) => `- **${e.persona}**: ${e.error}`)
+            .join("\n");
+          await adminChannel.send({
+            embeds: [
+              {
+                title: "Persona Channel Sync Errors",
+                color: 0xff6600,
+                description: `Some persona channels could not be synced:\n\n${errorMessages}`,
+              },
+            ],
+          });
+        }
+      }
+
+      if (result.created.length === 0 && result.errors.length === 0) {
+        logger.info(`All persona channels synced for ${guild.name}`);
+      }
+    } catch (error) {
+      logger.error(`Failed to sync channels for guild ${guild.name}:`, error);
+    }
+  }
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -104,6 +222,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await interaction.reply({ content: errorMessage, ephemeral: true });
     }
   }
+});
+
+// Handle messages in persona channels (auto-chat)
+client.on(Events.MessageCreate, async (message) => {
+  // Ignore DMs
+  if (!message.guild) return;
+
+  await handlePersonaChannelMessage(message);
 });
 
 client.on(Events.Error, (error) => {

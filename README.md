@@ -5,6 +5,18 @@ A Discord bot integrated with Google's Gemini AI for persona management, image g
 ## Architecture
 
 ```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           Discord Server                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  #general (Admin Channel)     │  📁 Personas (Category)                 │
+│  ├─ /persona create           │  ├─ #wise-wizard                       │
+│  ├─ /persona delete           │  │   ├─ Auto-chat (shared session)     │
+│  ├─ /persona list             │  │   ├─ /persona edit                  │
+│  └─ /persona rename           │  │   └─ /imagine (uses appearance)     │
+│                               │  └─ #friendly-chef                      │
+└───────────────────────────────┴─────────────────────────────────────────┘
+                                        │
+                                        ▼
 ┌─────────────────────┐         ┌─────────────────────┐
 │   Discord Bot       │  HTTP   │   Python Agent      │
 │   (TypeScript/Bun)  │◄───────►│   Service (FastAPI) │
@@ -21,6 +33,7 @@ A Discord bot integrated with Google's Gemini AI for persona management, image g
                               ├───────────────────────┤
                               │ Firestore (Native)    │
                               │ - Persona persistence │
+                              │ - Channel sessions    │
                               ├───────────────────────┤
                               │ Agent Engine          │
                               │ - Sessions (chat)     │
@@ -31,14 +44,16 @@ A Discord bot integrated with Google's Gemini AI for persona management, image g
 ## Features
 
 ### Implemented
-- **Create AI Persona**: `/persona create <name> <personality>` - Create custom AI personalities
-- **List/Edit Personas**: `/persona list`, `/persona edit <name> <field> <value>` - Manage personas
-- **Image Generation**: `/imagine <prompt>` - Generate images using Gemini 2.5 Flash Image
-- **Chat with Memory**: `/chat talk <persona> <message>` - Conversational AI with persistent memory
-- **Memory Management**: `/chat memories`, `/chat teach` - View and manage persona memories
+- **Dedicated Persona Channels**: Each persona gets its own Discord channel
+- **Auto-Chat**: Just type in a persona channel - the bot responds in character
+- **Selective Response**: Bot decides when to respond (doesn't spam on every message)
+- **Persona Management**: Create, list, delete, rename, and edit personas
+- **Image Generation**: `/imagine` with optional persona appearance integration
+- **Long-Term Memory**: Personas remember conversations across sessions
+- **Memory Isolation**: Each persona's memories are separate
+- **Error Interpretation**: LLM-powered friendly error messages
 
 ### Planned
-- **Chat Channel Integration**: Assign bot to a channel for AI conversations
 - **Voice Chat**: Real-time voice conversations using Vertex AI Live API
 
 ## Project Structure
@@ -80,6 +95,27 @@ A Discord bot integrated with Google's Gemini AI for persona management, image g
 - Docker & Docker Compose
 - GCP Project with Vertex AI enabled
 - Discord Application with Bot Token
+
+## Discord Bot Setup
+
+### Required Bot Permissions
+
+The bot requires the following permissions to manage persona channels:
+
+1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
+2. Select your application
+3. Navigate to **OAuth2** → **URL Generator**
+4. Select scopes: `bot`, `applications.commands`
+5. Select bot permissions:
+   - **General Permissions**: `Manage Channels`
+   - **Text Permissions**: `Send Messages`, `Read Message History`, `View Channels`
+6. Use the generated URL to invite the bot to your server
+
+### Verify Bot Role
+
+1. Open your Discord server settings
+2. Go to **Roles** and find the bot's role
+3. Ensure **Manage Channels** is enabled
 
 ## Setup
 
@@ -136,38 +172,55 @@ docker compose up --build
 | `/api/personas` | POST | Create persona |
 | `/api/personas` | GET | List all personas |
 | `/api/personas/{name}` | GET | Get persona by name |
-| `/api/personas/{name}` | PATCH | Update persona |
+| `/api/personas/{name}` | PATCH | Update persona (personality, appearance, channel_id) |
 | `/api/personas/{name}` | DELETE | Delete persona |
-| `/api/images/generate` | POST | Generate image (JSON response) |
+| `/api/personas/{name}/rename` | POST | Rename persona and migrate memories |
+| `/api/images/generate` | POST | Generate image (JSON, optional persona_name) |
 | `/api/images/generate/raw` | POST | Generate image (raw bytes) |
-| `/api/chat` | POST | Chat with a persona (with memory) |
+| `/api/chat` | POST | Chat with a persona (supports channel mode) |
 | `/api/chat/end-session` | POST | End session and generate memories |
+| `/api/chat/channel-sessions/{id}` | DELETE | Delete a channel session |
 | `/api/chat/sessions` | GET | List user's sessions |
 | `/api/chat/memories` | GET | List memories for persona/user |
 | `/api/chat/memories` | POST | Create a memory directly |
+| `/api/chat/memories/{persona}` | DELETE | Delete all memories for a persona |
+| `/api/chat/interpret-error` | POST | Get LLM interpretation of an error |
 
 ## Discord Commands
 
-### Persona Management
-| Command | Description |
-|---------|-------------|
-| `/persona create <name> <personality>` | Create a new AI persona |
-| `/persona list` | List all personas |
-| `/persona edit <name> <field> <value>` | Edit an existing persona |
+### Admin Channel Commands (default: #general)
 
-### Image Generation
-| Command | Description |
-|---------|-------------|
-| `/imagine <prompt> [aspect_ratio]` | Generate an image from text |
+These commands must be used in the admin channel:
 
-### Chat with Memory
 | Command | Description |
 |---------|-------------|
-| `/chat talk <persona> <message>` | Chat with a persona (uses memory) |
-| `/chat end <persona> [save_memories]` | End conversation and save memories |
-| `/chat sessions [persona]` | View your active chat sessions |
-| `/chat memories <persona> [shared]` | View memories a persona has |
-| `/chat teach <persona> <fact> [shared]` | Teach a persona something directly |
+| `/persona create <name> <personality> [appearance]` | Create a new persona with its own channel |
+| `/persona list` | List all personas with their channels |
+| `/persona delete <name> <confirm>` | Delete persona, channel, memories, and session |
+| `/persona rename <current_name> <new_name>` | Rename persona and its channel |
+
+### Persona Channel Commands
+
+These commands work only in persona-specific channels (under the "Personas" category):
+
+| Command | Description |
+|---------|-------------|
+| `/persona edit [personality] [appearance]` | Edit this channel's persona |
+| `/imagine <prompt> [aspect_ratio]` | Generate image (uses persona appearance) |
+
+### Global Commands (Any Channel)
+
+| Command | Description |
+|---------|-------------|
+| `/memories <persona> [user] [search]` | View memories for a persona |
+
+### Auto-Chat (Persona Channels)
+
+In persona channels, you can chat naturally without commands:
+- Just type a message and the bot responds in character
+- Shared session per channel - all users share the conversation
+- Bot decides when to respond based on context
+- Memories are automatically built from conversations
 
 ## Deployment to GCP
 
@@ -299,6 +352,16 @@ personas/
   └── {persona_name_lowercase}/
       ├── name: string
       ├── personality: string
+      ├── appearance: string (optional)
+      ├── channel_id: string (Discord channel ID)
+      ├── created_at: timestamp
+      └── updated_at: timestamp
+
+channel_sessions/
+  └── {channel_id}/
+      ├── channel_id: string
+      ├── session_id: string (Vertex AI session ID)
+      ├── persona_name: string
       ├── created_at: timestamp
       └── updated_at: timestamp
 ```

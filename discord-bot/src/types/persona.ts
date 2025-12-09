@@ -5,6 +5,8 @@
 export interface Persona {
   name: string;
   personality: string;
+  appearance: string | null;
+  channel_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -12,9 +14,17 @@ export interface Persona {
 export interface PersonaCreate {
   name: string;
   personality: string;
+  appearance?: string;
+  channel_id?: string;
 }
 
 export interface PersonaUpdate {
-  name?: string;
+  // Note: name is not allowed in update - use rename endpoint instead
   personality?: string;
+  appearance?: string;
+  channel_id?: string;
+}
+
+export interface PersonaRename {
+  new_name: string;
 }

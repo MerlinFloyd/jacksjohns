@@ -4,7 +4,7 @@
 
 import { config } from "../config/env";
 import { logger } from "../utils/logger";
-import type { Persona, PersonaCreate, PersonaUpdate } from "../types/persona";
+import type { Persona, PersonaCreate, PersonaUpdate, PersonaRename } from "../types/persona";
 import type {
   ImageGenerateRequest,
   ImageGenerateResponse,
@@ -14,6 +14,9 @@ import type {
   EndSessionResponse,
   SessionInfo,
   MemoryInfo,
+  DeleteMemoriesResponse,
+  ErrorInterpretRequest,
+  ErrorInterpretResponse,
 } from "../types/api";
 
 class AgentClient {
@@ -164,6 +167,62 @@ class AgentClient {
     const params = new URLSearchParams({ persona_name: personaName, fact });
     if (userId) params.append("user_id", userId);
     return this.request<MemoryInfo>("POST", `/api/chat/memories?${params}`);
+  }
+
+  // Rename persona
+  async renamePersona(name: string, newName: string): Promise<Persona> {
+    logger.info(`Renaming persona: ${name} -> ${newName}`);
+    return this.request<Persona>(
+      "POST",
+      `/api/personas/${encodeURIComponent(name)}/rename`,
+      { new_name: newName }
+    );
+  }
+
+  // Delete persona memories
+  async deletePersonaMemories(
+    personaName: string,
+    userId?: string
+  ): Promise<DeleteMemoriesResponse> {
+    logger.info(`Deleting memories for persona: ${personaName}${userId ? `, user: ${userId}` : ""}`);
+    let path = `/api/chat/memories/${encodeURIComponent(personaName)}`;
+    if (userId) {
+      path += `?user_id=${encodeURIComponent(userId)}`;
+    }
+    return this.request<DeleteMemoriesResponse>("DELETE", path);
+  }
+
+  // Delete channel session
+  async deleteChannelSession(channelId: string): Promise<{ status: string; deleted: boolean }> {
+    logger.info(`Deleting channel session: ${channelId}`);
+    return this.request<{ status: string; deleted: boolean }>(
+      "DELETE",
+      `/api/chat/channel-sessions/${encodeURIComponent(channelId)}`
+    );
+  }
+
+  // Interpret error for user-friendly message
+  async interpretError(
+    errorMessage: string,
+    context?: string,
+    personaName?: string
+  ): Promise<string> {
+    try {
+      const response = await this.request<ErrorInterpretResponse>(
+        "POST",
+        "/api/chat/interpret-error",
+        {
+          error_message: errorMessage,
+          error_context: context,
+          persona_name: personaName,
+        }
+      );
+      return response.interpretation;
+    } catch (error) {
+      // If error interpretation fails, return original error
+      logger.warn("Failed to interpret error:", error);
+      return `Something went wrong: ${errorMessage}`;
+    }
   }
 }
 

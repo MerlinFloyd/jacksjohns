@@ -6,6 +6,7 @@ export interface Config {
   discord: {
     token: string;
     applicationId: string;
+    adminChannelName: string;  // Channel name for admin commands (create, delete, list, rename)
   };
   agentService: {
     url: string;
@@ -25,6 +26,7 @@ export function loadConfig(): Config {
     discord: {
       token: getEnvVar("DISCORD_BOT_TOKEN"),
       applicationId: getEnvVar("DISCORD_APPLICATION_ID", "1447797969423175742"),
+      adminChannelName: getEnvVar("DISCORD_ADMIN_CHANNEL", "general"),
     },
     agentService: {
       url: getEnvVar("AGENT_SERVICE_URL", "http://localhost:8000"),

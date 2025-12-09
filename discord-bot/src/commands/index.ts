@@ -1,33 +1,56 @@
 /**
- * Command registry and definitions.
+ * Command registry, definitions, and channel-based restrictions.
+ * 
+ * Command Locations:
+ * - Admin channel (#general by default): /persona create, /persona delete, /persona list, /persona rename
+ * - Persona channels: /persona edit, /imagine
+ * - Any channel: /memories
  */
 
 import {
   SlashCommandBuilder,
+  TextChannel,
   type ChatInputCommandInteraction,
   type RESTPostAPIChatInputApplicationCommandsJSONBody,
 } from "discord.js";
 
+import { config } from "../config/env";
+import { logger } from "../utils/logger";
+import { getPersonaForChannel, isAdminChannel, invalidatePersonaCache } from "../utils/channel";
+import { agentClient } from "../services/agent-client";
+import type { Persona } from "../types/persona";
+
+// Import handlers
 import { handlePersonaCreate, handlePersonaList, handlePersonaEdit } from "./persona/create";
+import { handlePersonaDelete } from "./persona/delete";
+import { handlePersonaRename } from "./persona/rename";
 import { handleImagine } from "./imagine";
-import {
-  handleChat,
-  handleChatEnd,
-  handleChatSessions,
-  handleChatMemories,
-  handleChatTeach,
-} from "./chat";
+import { handleMemories } from "./memories";
+
+// Command location restrictions
+const ADMIN_CHANNEL_COMMANDS = [
+  "persona create",
+  "persona delete",
+  "persona list",
+  "persona rename",
+];
+
+const PERSONA_CHANNEL_COMMANDS = [
+  "persona edit",
+  "imagine",
+];
 
 // Command definitions
 export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
-  // Persona commands
+  // Persona management commands
   new SlashCommandBuilder()
     .setName("persona")
     .setDescription("Manage AI personas")
+    // CREATE - admin channel only
     .addSubcommand((subcommand) =>
       subcommand
         .setName("create")
-        .setDescription("Create a new AI persona")
+        .setDescription("Create a new AI persona with its own channel")
         .addStringOption((option) =>
           option
             .setName("name")
@@ -42,44 +65,83 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
             .setRequired(true)
             .setMaxLength(2000)
         )
+        .addStringOption((option) =>
+          option
+            .setName("appearance")
+            .setDescription("Physical appearance for image generation")
+            .setRequired(false)
+            .setMaxLength(2000)
+        )
     )
-    .addSubcommand((subcommand) =>
-      subcommand.setName("list").setDescription("List all personas")
-    )
+    // LIST - admin channel only
     .addSubcommand((subcommand) =>
       subcommand
-        .setName("edit")
-        .setDescription("Edit an existing persona")
+        .setName("list")
+        .setDescription("List all personas")
+    )
+    // DELETE - admin channel only
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("delete")
+        .setDescription("Delete a persona and its channel")
         .addStringOption((option) =>
           option
             .setName("name")
-            .setDescription("Name of the persona to edit")
+            .setDescription("Name of the persona to delete")
+            .setRequired(true)
+        )
+        .addBooleanOption((option) =>
+          option
+            .setName("confirm")
+            .setDescription("Confirm deletion (required)")
+            .setRequired(true)
+        )
+    )
+    // RENAME - admin channel only
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("rename")
+        .setDescription("Rename a persona and its channel")
+        .addStringOption((option) =>
+          option
+            .setName("current_name")
+            .setDescription("Current name of the persona")
             .setRequired(true)
         )
         .addStringOption((option) =>
           option
-            .setName("field")
-            .setDescription("Field to edit")
+            .setName("new_name")
+            .setDescription("New name for the persona")
             .setRequired(true)
-            .addChoices(
-              { name: "name", value: "name" },
-              { name: "personality", value: "personality" }
-            )
+            .setMaxLength(100)
+        )
+    )
+    // EDIT - persona channel only (auto-scoped to channel's persona)
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("edit")
+        .setDescription("Edit this channel's persona")
+        .addStringOption((option) =>
+          option
+            .setName("personality")
+            .setDescription("New personality description")
+            .setRequired(false)
+            .setMaxLength(2000)
         )
         .addStringOption((option) =>
           option
-            .setName("value")
-            .setDescription("New value for the field")
-            .setRequired(true)
+            .setName("appearance")
+            .setDescription("New physical appearance for image generation")
+            .setRequired(false)
             .setMaxLength(2000)
         )
     )
     .toJSON(),
 
-  // Image generation command
+  // Image generation command - uses persona appearance in persona channels
   new SlashCommandBuilder()
     .setName("imagine")
-    .setDescription("Generate an image from a text prompt")
+    .setDescription("Generate an image (uses persona appearance in persona channels)")
     .addStringOption((option) =>
       option
         .setName("prompt")
@@ -104,167 +166,181 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
     )
     .toJSON(),
 
-  // Chat command - interact with personas with memory
+  // Memories command - view memories (simplified from /chat memories)
   new SlashCommandBuilder()
-    .setName("chat")
-    .setDescription("Chat with AI personas - conversations with memory")
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName("talk")
-        .setDescription("Send a message to a persona")
-        .addStringOption((option) =>
-          option
-            .setName("persona")
-            .setDescription("Name of the persona to chat with")
-            .setRequired(true)
-        )
-        .addStringOption((option) =>
-          option
-            .setName("message")
-            .setDescription("Your message to the persona")
-            .setRequired(true)
-            .setMaxLength(4000)
-        )
+    .setName("memories")
+    .setDescription("View memories for a persona")
+    .addStringOption((option) =>
+      option
+        .setName("persona")
+        .setDescription("Name of the persona")
+        .setRequired(true)
     )
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName("end")
-        .setDescription("End a conversation and save memories")
-        .addStringOption((option) =>
-          option
-            .setName("persona")
-            .setDescription("Name of the persona")
-            .setRequired(true)
-        )
-        .addBooleanOption((option) =>
-          option
-            .setName("save_memories")
-            .setDescription("Generate memories from this conversation (default: true)")
-            .setRequired(false)
-        )
+    .addUserOption((option) =>
+      option
+        .setName("user")
+        .setDescription("View memories for a specific user (default: yourself)")
+        .setRequired(false)
     )
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName("sessions")
-        .setDescription("View your active chat sessions")
-        .addStringOption((option) =>
-          option
-            .setName("persona")
-            .setDescription("Filter by persona name (optional)")
-            .setRequired(false)
-        )
-    )
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName("memories")
-        .setDescription("View memories a persona has about you")
-        .addStringOption((option) =>
-          option
-            .setName("persona")
-            .setDescription("Name of the persona")
-            .setRequired(true)
-        )
-        .addBooleanOption((option) =>
-          option
-            .setName("shared")
-            .setDescription("View shared memories instead of personal (default: false)")
-            .setRequired(false)
-        )
-    )
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName("teach")
-        .setDescription("Teach a persona something directly")
-        .addStringOption((option) =>
-          option
-            .setName("persona")
-            .setDescription("Name of the persona")
-            .setRequired(true)
-        )
-        .addStringOption((option) =>
-          option
-            .setName("fact")
-            .setDescription("The fact to teach the persona")
-            .setRequired(true)
-            .setMaxLength(500)
-        )
-        .addBooleanOption((option) =>
-          option
-            .setName("shared")
-            .setDescription("Make this a shared memory for all users (default: false)")
-            .setRequired(false)
-        )
+    .addStringOption((option) =>
+      option
+        .setName("search")
+        .setDescription("Search memories containing this text")
+        .setRequired(false)
     )
     .toJSON(),
 ];
 
-// Command handler router
+/**
+ * Validate command is being used in the correct channel type.
+ */
+async function validateCommandLocation(
+  interaction: ChatInputCommandInteraction
+): Promise<{ valid: boolean; error?: string; persona?: Persona }> {
+  const channel = interaction.channel;
+  
+  // Must be in a guild text channel
+  if (!channel || !(channel instanceof TextChannel)) {
+    return { valid: false, error: "This command must be used in a server text channel." };
+  }
+
+  const subcommand = interaction.options.getSubcommand(false);
+  const fullCommand = subcommand
+    ? `${interaction.commandName} ${subcommand}`
+    : interaction.commandName;
+
+  // Check admin-only commands
+  if (ADMIN_CHANNEL_COMMANDS.includes(fullCommand)) {
+    if (!isAdminChannel(channel.name, config.discord.adminChannelName)) {
+      return {
+        valid: false,
+        error: `This command can only be used in #${config.discord.adminChannelName}`,
+      };
+    }
+    return { valid: true };
+  }
+
+  // Check persona-channel-only commands
+  if (PERSONA_CHANNEL_COMMANDS.includes(fullCommand)) {
+    const persona = await getPersonaForChannel(channel.id);
+    if (!persona) {
+      return {
+        valid: false,
+        error: "This command can only be used in a persona channel (under the Personas category).",
+      };
+    }
+    return { valid: true, persona };
+  }
+
+  // Other commands allowed anywhere
+  return { valid: true };
+}
+
+/**
+ * Main command handler with channel validation.
+ */
 export async function handleCommand(
   interaction: ChatInputCommandInteraction
 ): Promise<void> {
   const commandName = interaction.commandName;
 
-  switch (commandName) {
-    case "persona":
-      await handlePersonaCommand(interaction);
-      break;
-    case "imagine":
-      await handleImagine(interaction);
-      break;
-    case "chat":
-      await handleChatCommand(interaction);
-      break;
-    default:
-      await interaction.reply({
-        content: `Unknown command: ${commandName}`,
-        ephemeral: true,
-      });
+  // Validate command location
+  const validation = await validateCommandLocation(interaction);
+  if (!validation.valid) {
+    await interaction.reply({
+      content: validation.error!,
+      ephemeral: true,
+    });
+    return;
+  }
+
+  try {
+    switch (commandName) {
+      case "persona":
+        await handlePersonaCommand(interaction, validation.persona);
+        break;
+      case "imagine":
+        await handleImagine(interaction, validation.persona);
+        break;
+      case "memories":
+        await handleMemories(interaction);
+        break;
+      default:
+        await interaction.reply({
+          content: `Unknown command: ${commandName}`,
+          ephemeral: true,
+        });
+    }
+  } catch (error) {
+    logger.error(`Command execution failed: ${commandName}`, error);
+    
+    // Try to interpret the error for the user
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    let userMessage = errorMessage;
+    
+    try {
+      userMessage = await agentClient.interpretError(
+        errorMessage,
+        `Failed to execute /${commandName}`,
+        validation.persona?.name
+      );
+    } catch {
+      // If interpretation fails, use original message
+    }
+
+    const replyOptions = {
+      content: userMessage,
+      ephemeral: true,
+    };
+
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp(replyOptions);
+    } else {
+      await interaction.reply(replyOptions);
+    }
   }
 }
 
+/**
+ * Handle persona subcommands.
+ */
 async function handlePersonaCommand(
-  interaction: ChatInputCommandInteraction
+  interaction: ChatInputCommandInteraction,
+  persona?: Persona
 ): Promise<void> {
   const subcommand = interaction.options.getSubcommand();
 
   switch (subcommand) {
     case "create":
       await handlePersonaCreate(interaction);
+      // Invalidate cache after creating
+      invalidatePersonaCache();
       break;
     case "list":
       await handlePersonaList(interaction);
       break;
+    case "delete":
+      await handlePersonaDelete(interaction);
+      // Invalidate cache after deleting
+      invalidatePersonaCache();
+      break;
+    case "rename":
+      await handlePersonaRename(interaction);
+      // Invalidate cache after renaming
+      invalidatePersonaCache();
+      break;
     case "edit":
-      await handlePersonaEdit(interaction);
-      break;
-    default:
-      await interaction.reply({
-        content: `Unknown subcommand: ${subcommand}`,
-        ephemeral: true,
-      });
-  }
-}
-
-async function handleChatCommand(
-  interaction: ChatInputCommandInteraction
-): Promise<void> {
-  const subcommand = interaction.options.getSubcommand();
-
-  switch (subcommand) {
-    case "talk":
-      await handleChat(interaction);
-      break;
-    case "end":
-      await handleChatEnd(interaction);
-      break;
-    case "sessions":
-      await handleChatSessions(interaction);
-      break;
-    case "memories":
-      await handleChatMemories(interaction);
-      break;
-    case "teach":
-      await handleChatTeach(interaction);
+      // Pass the auto-detected persona from the channel
+      if (!persona) {
+        await interaction.reply({
+          content: "Could not determine persona for this channel.",
+          ephemeral: true,
+        });
+        return;
+      }
+      await handlePersonaEdit(interaction, persona);
+      // Invalidate cache after editing
+      invalidatePersonaCache(persona.channel_id || undefined);
       break;
     default:
       await interaction.reply({

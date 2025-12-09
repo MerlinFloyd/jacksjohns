@@ -12,6 +12,7 @@ from ..dependencies import (
     get_persona_repository,
     get_session_service,
     get_memory_service,
+    get_channel_session_repository,
 )
 from ...config.settings import get_settings
 from ...domain.interfaces import (
@@ -26,6 +27,29 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
+# Channel chat system prompt addition
+CHANNEL_CHAT_INSTRUCTIONS = """
+You are in a Discord channel where multiple users may be chatting.
+The user's display name will be included with their message in format: [DisplayName]: message
+
+RESPOND when:
+- Someone directly addresses you by name
+- Someone asks a question that seems directed at you
+- The conversation naturally invites your input
+- Someone is clearly expecting a response from you
+- The message is a direct question or request
+
+DO NOT RESPOND when:
+- Users are chatting among themselves without involving you
+- The message is a simple acknowledgment like "ok", "thanks", "lol"
+- You've recently responded and the conversation has moved on without you
+- The message is clearly directed at another user
+
+If you determine you should NOT respond, return ONLY the text "[NO_RESPONSE]" (exactly as written).
+Otherwise, respond normally in character.
+"""
+
+
 # Request/Response Models
 class ChatRequest(BaseModel):
     """Request model for chat messages."""
@@ -33,6 +57,10 @@ class ChatRequest(BaseModel):
     user_id: str = Field(..., description="Discord user ID")
     message: str = Field(..., min_length=1, max_length=4000, description="User message")
     session_id: str | None = Field(None, description="Existing session ID (optional)")
+    # New fields for channel chat mode
+    user_display_name: str | None = Field(None, description="User's display name in Discord")
+    is_channel_chat: bool = Field(False, description="Whether this is from a persona channel (enables selective response)")
+    channel_id: str | None = Field(None, description="Discord channel ID for session persistence")
 
 
 class ChatResponse(BaseModel):
@@ -41,6 +69,7 @@ class ChatResponse(BaseModel):
     session_id: str = Field(..., description="Session ID for continuing the conversation")
     persona_name: str = Field(..., description="Persona name used")
     memories_used: int = Field(0, description="Number of memories retrieved and used")
+    should_respond: bool = Field(True, description="Whether the bot should send this response")
 
 
 class SessionListResponse(BaseModel):
@@ -59,6 +88,25 @@ class MemoryResponse(BaseModel):
     scope: dict[str, str]
 
 
+class DeleteMemoriesResponse(BaseModel):
+    """Response model for deleting memories."""
+    deleted_count: int
+    persona_name: str
+    user_id: str | None
+
+
+class ErrorInterpretRequest(BaseModel):
+    """Request model for error interpretation."""
+    error_message: str = Field(..., description="The error message to interpret")
+    error_context: str | None = Field(None, description="Additional context about what was being attempted")
+    persona_name: str | None = Field(None, description="If provided, respond in character as this persona")
+
+
+class ErrorInterpretResponse(BaseModel):
+    """Response model for error interpretation."""
+    interpretation: str = Field(..., description="User-friendly interpretation of the error")
+
+
 # Helper functions
 def _build_system_prompt(
     personality: str,
@@ -68,6 +116,28 @@ def _build_system_prompt(
     prompt_parts = [
         f"You are an AI persona with the following personality:\n{personality}\n",
         "\nIMPORTANT: Stay in character at all times. Respond as this persona would.\n",
+    ]
+    
+    if memories:
+        prompt_parts.append("\n--- Your Long-Term Memories ---")
+        prompt_parts.append("Use these memories to personalize your responses:\n")
+        for mem in memories:
+            prompt_parts.append(f"- {mem.fact}")
+        prompt_parts.append("\n--- End of Memories ---\n")
+    
+    return "\n".join(prompt_parts)
+
+
+def _build_channel_system_prompt(
+    persona_name: str,
+    personality: str,
+    memories: list[Any],
+) -> str:
+    """Build the system prompt for channel chat mode with selective response."""
+    prompt_parts = [
+        f"You are {persona_name}. {personality}\n",
+        "\nIMPORTANT: Stay in character at all times. Respond as this persona would.\n",
+        CHANNEL_CHAT_INSTRUCTIONS.replace("{persona_name}", persona_name),
     ]
     
     if memories:
@@ -130,6 +200,53 @@ async def _generate_response(
     return response.text
 
 
+async def _interpret_error(
+    error_message: str,
+    error_context: str | None,
+    persona_personality: str | None,
+    persona_name: str | None,
+) -> str:
+    """Have the LLM interpret an error message for the user."""
+    settings = get_settings()
+    
+    client = genai.Client(
+        vertexai=True,
+        project=settings.gcp_project_id,
+        location=settings.gcp_region,
+    )
+    
+    system_prompt = """You are helping a user understand an error that occurred.
+Explain what went wrong in simple, friendly terms and suggest how to fix it if possible.
+Be concise (1-2 sentences). Don't use technical jargon."""
+    
+    if persona_personality and persona_name:
+        system_prompt += f"\n\nRespond in character as {persona_name}: {persona_personality}"
+    
+    user_message = f"Error: {error_message}"
+    if error_context:
+        user_message += f"\n\nContext: {error_context}"
+    
+    try:
+        response = client.models.generate_content(
+            model=settings.gemini_model,
+            contents=[
+                genai_types.Content(
+                    role="user",
+                    parts=[genai_types.Part(text=user_message)],
+                )
+            ],
+            config=genai_types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                temperature=0.7,
+                max_output_tokens=256,
+            ),
+        )
+        return response.text
+    except Exception as e:
+        logger.error(f"Failed to interpret error: {e}")
+        return f"Something went wrong: {error_message}"
+
+
 # Endpoints
 @router.post("", response_model=ChatResponse)
 async def chat(
@@ -137,6 +254,7 @@ async def chat(
     persona_repo: PersonaRepository = Depends(get_persona_repository),
     session_service: SessionService = Depends(get_session_service),
     memory_service: MemoryService = Depends(get_memory_service),
+    channel_session_repo=Depends(get_channel_session_repository),
 ) -> ChatResponse:
     """
     Chat with a persona.
@@ -147,6 +265,11 @@ async def chat(
     3. Retrieves relevant memories for personalization
     4. Generates an AI response
     5. Stores the interaction in the session
+    
+    For channel chat mode (is_channel_chat=True):
+    - Uses channel_id for session persistence
+    - Includes user display names in messages
+    - Enables selective response (bot decides whether to respond)
     
     Args:
         data: Chat request data
@@ -162,11 +285,18 @@ async def chat(
             detail=f"Persona '{data.persona_name}' not found",
         )
     
+    # Determine session ID - check channel session first if channel_id provided
+    session_id = data.session_id
+    if data.channel_id and channel_session_repo:
+        stored_session = await channel_session_repo.get_session(data.channel_id)
+        if stored_session:
+            session_id = stored_session.session_id
+    
     # Get or create session
     session = None
-    if data.session_id and session_service:
+    if session_id and session_service:
         session = await session_service.get_session(
-            session_id=data.session_id,
+            session_id=session_id,
             user_id=data.user_id,
             app_name=data.persona_name,
         )
@@ -176,6 +306,13 @@ async def chat(
             user_id=data.user_id,
             app_name=data.persona_name,
         )
+        # Store channel session mapping if channel_id provided
+        if data.channel_id and channel_session_repo and session:
+            await channel_session_repo.set_session(
+                channel_id=data.channel_id,
+                session_id=session.id,
+                persona_name=data.persona_name,
+            )
     
     # Get conversation history from session
     conversation_history = []
@@ -213,13 +350,24 @@ async def chat(
         except Exception as e:
             logger.warning(f"Failed to retrieve memories: {e}")
     
-    # Build system prompt with personality and memories
-    system_prompt = _build_system_prompt(persona.personality, memories)
+    # Build system prompt and format message based on mode
+    if data.is_channel_chat:
+        system_prompt = _build_channel_system_prompt(
+            persona_name=persona.name,
+            personality=persona.personality,
+            memories=memories,
+        )
+        # Include user display name in message
+        display_name = data.user_display_name or f"User {data.user_id[:8]}"
+        formatted_message = f"[{display_name}]: {data.message}"
+    else:
+        system_prompt = _build_system_prompt(persona.personality, memories)
+        formatted_message = data.message
     
     # Generate response
     try:
         ai_response = await _generate_response(
-            message=data.message,
+            message=formatted_message,
             system_prompt=system_prompt,
             conversation_history=conversation_history,
         )
@@ -230,30 +378,39 @@ async def chat(
             detail="Failed to generate AI response",
         )
     
-    # Store interaction in session
+    # Check for selective response (channel chat mode)
+    should_respond = True
+    if data.is_channel_chat:
+        if ai_response.strip() == "[NO_RESPONSE]" or not ai_response.strip():
+            should_respond = False
+            ai_response = ""
+    
+    # Store interaction in session (even if not responding, for context)
     if session and session_service:
         try:
-            # Add user message
+            # Add user message (with display name if channel mode)
             await session_service.append_event(
                 session_id=session.id,
                 user_id=data.user_id,
                 app_name=data.persona_name,
-                event=SessionEvent(role="user", content=data.message),
+                event=SessionEvent(role="user", content=formatted_message),
             )
             
-            # Add assistant response
-            await session_service.append_event(
-                session_id=session.id,
-                user_id=data.user_id,
-                app_name=data.persona_name,
-                event=SessionEvent(role="assistant", content=ai_response),
-            )
+            # Add assistant response (only if responding)
+            if should_respond and ai_response:
+                await session_service.append_event(
+                    session_id=session.id,
+                    user_id=data.user_id,
+                    app_name=data.persona_name,
+                    event=SessionEvent(role="assistant", content=ai_response),
+                )
         except Exception as e:
             logger.warning(f"Failed to store session events: {e}")
     
     logger.info(
         f"Chat completed: persona={data.persona_name}, user={data.user_id}, "
-        f"session={session.id if session else 'none'}, memories={memories_count}"
+        f"session={session.id if session else 'none'}, memories={memories_count}, "
+        f"should_respond={should_respond}"
     )
     
     return ChatResponse(
@@ -261,6 +418,7 @@ async def chat(
         session_id=session.id if session else "in-memory",
         persona_name=data.persona_name,
         memories_used=memories_count,
+        should_respond=should_respond,
     )
 
 
@@ -341,6 +499,47 @@ async def end_session(
         "session_id": session_id,
         "memories_generated": memories_generated,
     }
+
+
+@router.delete("/channel-sessions/{channel_id}")
+async def delete_channel_session(
+    channel_id: str,
+    channel_session_repo=Depends(get_channel_session_repository),
+    session_service: SessionService = Depends(get_session_service),
+) -> dict[str, Any]:
+    """
+    Delete a channel session mapping and the associated session.
+    
+    Args:
+        channel_id: Discord channel ID
+        
+    Returns:
+        Status of the deletion
+    """
+    if not channel_session_repo:
+        return {"status": "no_repository", "deleted": False}
+    
+    # Get the session mapping first
+    session_mapping = await channel_session_repo.get_session(channel_id)
+    
+    if not session_mapping:
+        return {"status": "not_found", "deleted": False}
+    
+    # Delete the session from Vertex AI if session service is available
+    if session_service and session_mapping.session_id:
+        try:
+            await session_service.delete_session(
+                session_id=session_mapping.session_id,
+                user_id="channel",  # Channel sessions use "channel" as user_id
+                app_name=session_mapping.persona_name,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to delete Vertex AI session: {e}")
+    
+    # Delete the mapping
+    deleted = await channel_session_repo.delete_session(channel_id)
+    
+    return {"status": "deleted" if deleted else "not_found", "deleted": deleted}
 
 
 @router.get("/sessions", response_model=list[SessionListResponse])
@@ -455,3 +654,88 @@ async def create_memory(
         fact=memory.fact,
         scope=memory.scope,
     )
+
+
+@router.delete("/memories/{persona_name}", response_model=DeleteMemoriesResponse)
+async def delete_persona_memories(
+    persona_name: str,
+    user_id: str | None = None,
+    memory_service: MemoryService = Depends(get_memory_service),
+) -> DeleteMemoriesResponse:
+    """
+    Delete all memories for a persona (or specific user's memories).
+    
+    Args:
+        persona_name: Persona name
+        user_id: If provided, only delete memories for this user
+        
+    Returns:
+        Count of deleted memories
+    """
+    if not memory_service:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory service not available",
+        )
+    
+    scope = MemoryScope(persona_name=persona_name, user_id=user_id)
+    
+    # Retrieve all memories for this scope
+    memories = await memory_service.retrieve_memories(
+        scope=scope,
+        limit=1000,  # Get as many as possible
+    )
+    
+    deleted_count = 0
+    for memory in memories:
+        if memory.id:
+            try:
+                success = await memory_service.delete_memory(memory.id)
+                if success:
+                    deleted_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to delete memory {memory.id}: {e}")
+    
+    logger.info(f"Deleted {deleted_count} memories for persona={persona_name}, user={user_id}")
+    
+    return DeleteMemoriesResponse(
+        deleted_count=deleted_count,
+        persona_name=persona_name,
+        user_id=user_id,
+    )
+
+
+@router.post("/interpret-error", response_model=ErrorInterpretResponse)
+async def interpret_error(
+    data: ErrorInterpretRequest,
+    persona_repo: PersonaRepository = Depends(get_persona_repository),
+) -> ErrorInterpretResponse:
+    """
+    Have the LLM interpret an error message for the user.
+    
+    Returns a user-friendly explanation of what went wrong and how to fix it.
+    Optionally responds in character if a persona_name is provided.
+    
+    Args:
+        data: Error interpretation request
+        
+    Returns:
+        User-friendly error interpretation
+    """
+    persona_personality = None
+    persona_name = None
+    
+    if data.persona_name:
+        persona = await persona_repo.get_by_name(data.persona_name)
+        if persona:
+            persona_personality = persona.personality
+            persona_name = persona.name
+    
+    interpretation = await _interpret_error(
+        error_message=data.error_message,
+        error_context=data.error_context,
+        persona_personality=persona_personality,
+        persona_name=persona_name,
+    )
+    
+    return ErrorInterpretResponse(interpretation=interpretation)

@@ -61,6 +61,8 @@ class FirestorePersonaRepository(PersonaRepository):
         return {
             "name": persona.name,
             "personality": persona.personality,
+            "appearance": persona.appearance,
+            "channel_id": persona.channel_id,
             "created_at": persona.created_at,
             "updated_at": persona.updated_at,
         }
@@ -80,6 +82,8 @@ class FirestorePersonaRepository(PersonaRepository):
         return Persona(
             name=doc_data["name"],
             personality=doc_data["personality"],
+            appearance=doc_data.get("appearance"),  # Optional, backward compatible
+            channel_id=doc_data.get("channel_id"),  # Optional, backward compatible
             created_at=created_at,
             updated_at=updated_at,
         )
