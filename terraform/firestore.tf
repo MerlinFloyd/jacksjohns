@@ -1,9 +1,10 @@
-# Firestore database for persona persistence
+# Firestore database for Jacks & Johns Discord Bot
+# Stores AI persona configurations and related data
 # Using Native mode for better real-time capabilities and newer features
 
-resource "google_firestore_database" "default" {
+resource "google_firestore_database" "jacksjohns" {
   project     = var.project_id
-  name        = "(default)"
+  name        = "jacksjohns-bot"
   location_id = var.region
   type        = "FIRESTORE_NATIVE"
 

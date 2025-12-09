@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     google_application_credentials: str | None = None
 
     # Firestore Configuration
+    firestore_database: str = "jacksjohns-bot"  # Named Firestore database
     firestore_collection: str = "personas"
     use_firestore: bool = True  # Set to False to use in-memory storage
 

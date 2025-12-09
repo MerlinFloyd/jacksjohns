@@ -24,23 +24,32 @@ class FirestorePersonaRepository(PersonaRepository):
     for production use.
     """
 
-    def __init__(self, collection_name: str | None = None) -> None:
+    def __init__(
+        self,
+        database_name: str | None = None,
+        collection_name: str | None = None,
+    ) -> None:
         """
         Initialize Firestore persona repository.
         
         Args:
+            database_name: Override the default database name from settings
             collection_name: Override the default collection name from settings
         """
         settings = get_settings()
+        self._database = database_name or settings.firestore_database
         self._collection = collection_name or settings.firestore_collection
         self._client: AsyncClient | None = None
-        logger.info(f"FirestorePersonaRepository initialized with collection: {self._collection}")
+        logger.info(
+            f"FirestorePersonaRepository initialized with "
+            f"database: {self._database}, collection: {self._collection}"
+        )
 
     @property
     def client(self) -> AsyncClient:
         """Get or create the async Firestore client."""
         if self._client is None:
-            self._client = firestore.AsyncClient()
+            self._client = firestore.AsyncClient(database=self._database)
         return self._client
 
     def _normalize_name(self, name: str) -> str:
