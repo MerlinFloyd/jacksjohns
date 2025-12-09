@@ -13,6 +13,131 @@ import vertexai
 logger = logging.getLogger(__name__)
 
 
+def build_memory_bank_config(project_id: str, location: str) -> dict[str, Any]:
+    """
+    Build the Memory Bank configuration for Jack's Johns Discord Bot.
+    
+    This configuration defines:
+    - What types of information to extract and store as memories
+    - Which models to use for memory generation and similarity search
+    
+    Memory Scoping Strategy:
+    - Shared persona memories: scope = {app_name: "<persona_name>"}
+    - Per-user memories: scope = {app_name: "<persona_name>", user_id: "<discord_user_id>"}
+    
+    Args:
+        project_id: GCP project ID
+        location: GCP region
+        
+    Returns:
+        Memory Bank configuration dictionary
+    """
+    # Model paths for the configuration
+    gemini_model = f"projects/{project_id}/locations/{location}/publishers/google/models/gemini-2.5-flash"
+    embedding_model = f"projects/{project_id}/locations/{location}/publishers/google/models/text-embedding-005"
+    
+    # Define memory topics - what information should be extracted and stored
+    # Using managed topics that are appropriate for a Discord bot with personas
+    memory_topics = [
+        # Personal info: names, relationships, hobbies, important dates
+        # e.g., "My name is John", "I work as a software engineer"
+        {
+            "managed_memory_topic": {
+                "managed_topic_enum": "USER_PERSONAL_INFO"
+            }
+        },
+        # User preferences: likes, dislikes, preferred styles
+        # e.g., "I prefer detailed explanations", "I like dark humor"
+        {
+            "managed_memory_topic": {
+                "managed_topic_enum": "USER_PREFERENCES"
+            }
+        },
+        # Key conversation events and outcomes
+        # e.g., "We discussed Python async programming", "User completed the tutorial"
+        {
+            "managed_memory_topic": {
+                "managed_topic_enum": "KEY_CONVERSATION_DETAILS"
+            }
+        },
+        # Explicit remember/forget instructions from users
+        # e.g., "Remember that I'm allergic to shellfish", "Forget my old address"
+        {
+            "managed_memory_topic": {
+                "managed_topic_enum": "EXPLICIT_INSTRUCTIONS"
+            }
+        },
+        # Custom topic: Persona-specific knowledge
+        # Things the persona should remember about interactions
+        {
+            "custom_memory_topic": {
+                "label": "persona_knowledge",
+                "description": """Important facts or context that the AI persona should 
+remember about interactions with users. This includes:
+- Topics the user frequently discusses with this persona
+- User's expertise level in various subjects
+- Ongoing projects or goals the user has mentioned
+- Context from previous conversations that would help personalize future responses
+- Any commitments or promises made during conversations"""
+            }
+        },
+    ]
+    
+    # Default customization config (applies to all scopes)
+    default_customization_config = {
+        "memory_topics": memory_topics,
+    }
+    
+    # User-level customization config (applies when scope includes user_id)
+    # This focuses on per-user personalization
+    user_level_customization_config = {
+        "scope_keys": ["app_name", "user_id"],
+        "memory_topics": memory_topics,
+    }
+    
+    # Shared persona-level config (applies when scope only has app_name)
+    # This is for knowledge shared across all users for a persona
+    persona_level_customization_config = {
+        "scope_keys": ["app_name"],
+        "memory_topics": [
+            # For shared memories, focus on key conversation details
+            # that might be relevant to all users
+            {
+                "managed_memory_topic": {
+                    "managed_topic_enum": "KEY_CONVERSATION_DETAILS"
+                }
+            },
+            {
+                "managed_memory_topic": {
+                    "managed_topic_enum": "EXPLICIT_INSTRUCTIONS"
+                }
+            },
+        ],
+    }
+    
+    # Build the complete Memory Bank configuration
+    memory_bank_config = {
+        # Customization configs for different scope levels
+        "customization_configs": [
+            user_level_customization_config,
+            persona_level_customization_config,
+            default_customization_config,
+        ],
+        # Similarity search config - for memory retrieval
+        "similarity_search_config": {
+            "embedding_model": embedding_model,
+        },
+        # Generation config - for extracting memories from conversations
+        "generation_config": {
+            "model": gemini_model,
+        },
+        # No TTL config - memories persist indefinitely
+        # Users can manually delete memories if needed
+    }
+    
+    return memory_bank_config
+
+
 class AgentEngineManager:
     """
     Manages the Agent Engine instance lifecycle.
@@ -98,14 +223,25 @@ class AgentEngineManager:
                 )
                 self._agent_engine_id = None
         
-        # Create new Agent Engine
+        # Create new Agent Engine with Memory Bank configuration
         logger.info(f"Creating new Agent Engine instance ({display_name})...")
         
         try:
-            # Create Agent Engine with default configuration
-            # Per the docs: client.agent_engines.create() takes no args for basic instance
-            # This provides Sessions and Memory Bank services out of the box
-            engine = self._client.agent_engines.create()
+            # Build the Memory Bank configuration
+            memory_bank_config = build_memory_bank_config(
+                project_id=self.project_id,
+                location=self.location,
+            )
+            
+            # Create Agent Engine with config
+            # Per docs: client.agent_engines.create(config={...})
+            engine = self._client.agent_engines.create(
+                config={
+                    "context_spec": {
+                        "memory_bank_config": memory_bank_config
+                    }
+                }
+            )
             
             # Extract the ID from the resource name
             # Format: projects/{project}/locations/{location}/reasoningEngines/{id}
@@ -123,6 +259,38 @@ class AgentEngineManager:
             
         except Exception as e:
             logger.error(f"Failed to create Agent Engine: {e}")
+            raise
+
+    async def update_memory_bank_config(self) -> None:
+        """
+        Update the Memory Bank configuration for an existing Agent Engine.
+        
+        Use this to apply configuration changes to an existing instance.
+        """
+        if not self._agent_engine_id:
+            raise ValueError("No Agent Engine ID configured")
+            
+        self._ensure_initialized()
+        
+        try:
+            memory_bank_config = build_memory_bank_config(
+                project_id=self.project_id,
+                location=self.location,
+            )
+            
+            self._client.agent_engines.update(
+                name=self.agent_engine_resource_name,
+                config={
+                    "context_spec": {
+                        "memory_bank_config": memory_bank_config
+                    }
+                }
+            )
+            
+            logger.info(f"Updated Memory Bank config for Agent Engine: {self._agent_engine_id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to update Memory Bank config: {e}")
             raise
     
     async def delete_agent_engine(self) -> bool:
