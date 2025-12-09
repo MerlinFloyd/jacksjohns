@@ -3,6 +3,14 @@ Vertex AI Memory Bank Service implementation.
 
 This implements the MemoryService interface using Vertex AI Agent Engine's
 Memory Bank feature for persistent, long-term memory storage.
+
+Correct API signatures (from vertexai._genai.agent_engines):
+- create_memory(*, name: str, fact: str, scope: dict[str, str], config=None) -> AgentEngineMemoryOperation
+- retrieve_memories(*, name: str, scope: dict[str, str], similarity_search_params=None, ...) -> Iterator[RetrievedMemory]
+- generate_memories(*, name: str, direct_contents_source=None, vertex_session_source=None, scope=None, ...) -> AgentEngineGenerateMemoriesOperation
+
+Where similarity_search_params is a dict with: {"search_query": str, "top_k": int}
+And direct_contents_source is a dict with: {"events": [{"content": Content}]}
 """
 
 import logging
@@ -75,35 +83,41 @@ class VertexAiMemoryService(MemoryService):
             return []
         
         try:
-            # Convert conversation to Content format
-            contents = []
+            # Convert conversation to events for direct_contents_source
+            # Format: {"events": [{"content": Content}]}
+            events = []
             for msg in conversation_history:
                 role = "user" if msg["role"] == "user" else "model"
-                contents.append(
-                    genai_types.Content(
+                events.append({
+                    "content": genai_types.Content(
                         role=role,
                         parts=[genai_types.Part(text=msg["content"])]
                     )
-                )
+                })
             
-            # Call GenerateMemories API
+            # Call GenerateMemories API with direct_contents_source
             agent_engine_name = self._get_agent_engine_name()
             
-            response = self._client.agent_engines.generate_memories(
+            operation = self._client.agent_engines.generate_memories(
                 name=agent_engine_name,
-                vertex_session_source=genai_types.VertexSessionSource(
-                    contents=contents,
-                ),
+                direct_contents_source={"events": events},
                 scope=scope.to_dict(),
             )
             
+            # The operation may be async - check for response
+            response = operation
+            if hasattr(operation, 'response') and operation.response is not None:
+                response = operation.response
+            
             # Convert response to Memory objects
             memories = []
-            if response and hasattr(response, 'memories'):
-                for mem in response.memories:
+            if response:
+                # Response might have 'memories' attribute or be iterable
+                mem_list = getattr(response, 'memories', None) or []
+                for mem in mem_list:
                     memories.append(Memory(
-                        id=mem.name if hasattr(mem, 'name') else "",
-                        fact=mem.fact if hasattr(mem, 'fact') else str(mem),
+                        id=getattr(mem, 'name', "") or "",
+                        fact=getattr(mem, 'fact', "") or str(mem),
                         scope=scope.to_dict(),
                     ))
             
@@ -138,15 +152,16 @@ class VertexAiMemoryService(MemoryService):
         try:
             agent_engine_name = self._get_agent_engine_name()
             
-            # Use similarity search if query provided, otherwise list all
+            # Use similarity search if query provided, otherwise simple retrieval
+            # Correct format: similarity_search_params={"search_query": str, "top_k": int}
             if query:
                 response = self._client.agent_engines.retrieve_memories(
                     name=agent_engine_name,
                     scope=scope.to_dict(),
-                    similarity_search_params=genai_types.SimilaritySearchParams(
-                        query=query,
-                        top_k=limit,
-                    ),
+                    similarity_search_params={
+                        "search_query": query,
+                        "top_k": limit,
+                    },
                 )
             else:
                 response = self._client.agent_engines.retrieve_memories(
@@ -154,13 +169,24 @@ class VertexAiMemoryService(MemoryService):
                     scope=scope.to_dict(),
                 )
             
-            # Convert response to Memory objects
+            # Response is an iterator of RetrieveMemoriesResponseRetrievedMemory
+            # Each item has a 'memory' attribute with the actual memory
             memories = []
-            if response and hasattr(response, 'memories'):
-                for mem in response.memories:
+            for retrieved_mem in response:
+                # Handle both dict and object responses
+                if isinstance(retrieved_mem, dict):
+                    mem = retrieved_mem.get('memory', retrieved_mem)
                     memories.append(Memory(
-                        id=mem.name if hasattr(mem, 'name') else "",
-                        fact=mem.fact if hasattr(mem, 'fact') else str(mem),
+                        id=mem.get('name', ""),
+                        fact=mem.get('fact', str(mem)),
+                        scope=scope.to_dict(),
+                    ))
+                else:
+                    # Object response - memory is in .memory attribute
+                    mem = getattr(retrieved_mem, 'memory', retrieved_mem)
+                    memories.append(Memory(
+                        id=getattr(mem, 'name', "") or "",
+                        fact=getattr(mem, 'fact', "") or str(mem),
                         scope=scope.to_dict(),
                     ))
             
@@ -193,16 +219,27 @@ class VertexAiMemoryService(MemoryService):
         try:
             agent_engine_name = self._get_agent_engine_name()
             
-            response = self._client.agent_engines.create_memory(
-                parent=agent_engine_name,
-                memory=genai_types.Memory(
-                    fact=fact,
-                    scope=scope.to_dict(),
-                ),
+            # Correct signature: create_memory(*, name: str, fact: str, scope: dict[str, str])
+            operation = self._client.agent_engines.create_memory(
+                name=agent_engine_name,
+                fact=fact,
+                scope=scope.to_dict(),
             )
             
+            # Operation may have a response attribute with the created memory
+            response = operation
+            if hasattr(operation, 'response') and operation.response is not None:
+                response = operation.response
+            
+            # Extract memory ID from response
+            memory_id = ""
+            if hasattr(response, 'name'):
+                memory_id = response.name or ""
+            elif isinstance(response, dict):
+                memory_id = response.get('name', "")
+            
             memory = Memory(
-                id=response.name if hasattr(response, 'name') else "",
+                id=memory_id,
                 fact=fact,
                 scope=scope.to_dict(),
             )
