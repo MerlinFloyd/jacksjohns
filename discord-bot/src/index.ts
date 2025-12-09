@@ -57,12 +57,20 @@ async function registerCommands(): Promise<void> {
 
   try {
     logger.info("Registering slash commands...");
+    logger.info(`Commands to register (${commands.length}):`);
+    for (const cmd of commands) {
+      logger.info(`  - /${cmd.name}: ${cmd.description}`);
+    }
 
-    await rest.put(Routes.applicationCommands(config.discord.applicationId), {
+    const result = await rest.put(Routes.applicationCommands(config.discord.applicationId), {
       body: commands,
     });
 
-    logger.info(`Successfully registered ${commands.length} commands`);
+    const registeredCommands = result as Array<{ name: string; id: string }>;
+    logger.info(`Successfully registered ${registeredCommands.length} commands with Discord:`);
+    for (const cmd of registeredCommands) {
+      logger.info(`  - /${cmd.name} (id: ${cmd.id})`);
+    }
   } catch (error) {
     logger.error("Failed to register commands:", error);
     throw error;

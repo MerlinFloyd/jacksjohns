@@ -6,8 +6,7 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun --watch run src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target bun",
-    "register": "bun run src/register-commands.ts"
+    "build": "bun build src/index.ts --outdir dist --target bun"
   },
   "dependencies": {
     "discord.js": "^14.14.1"
