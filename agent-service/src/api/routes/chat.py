@@ -117,7 +117,9 @@ You have access to a save_memory tool. Use it when:
 - The user shares important personal information they'll want you to recall later
 - Examples: their name, preferences, allergies, important dates, relationships
 
-When saving a memory, write it from the user's perspective (e.g., "I love pizza" not "User loves pizza").
+IMPORTANT: When saving a memory, ALWAYS write it in THIRD PERSON about THE USER.
+- Correct: "The user has blue hair", "The user loves pizza", "The user's birthday is March 5th"
+- Wrong: "I have blue hair", "I love pizza", "My birthday is March 5th"
 Only save genuinely important facts, not every detail of the conversation.
 """
 
@@ -135,11 +137,11 @@ def _build_system_prompt(
     ]
     
     if memories:
-        prompt_parts.append("\n--- Your Long-Term Memories ---")
-        prompt_parts.append("Use these memories to personalize your responses:\n")
+        prompt_parts.append("\n--- Facts About The User ---")
+        prompt_parts.append("These are facts you remember about THE USER you are talking to. Use them to personalize your responses:\n")
         for mem in memories:
             prompt_parts.append(f"- {mem.fact}")
-        prompt_parts.append("\n--- End of Memories ---\n")
+        prompt_parts.append("\n--- End of User Facts ---\n")
     
     return "\n".join(prompt_parts)
 
@@ -158,11 +160,11 @@ def _build_channel_system_prompt(
     ]
     
     if memories:
-        prompt_parts.append("\n--- Your Long-Term Memories ---")
-        prompt_parts.append("Use these memories to personalize your responses:\n")
+        prompt_parts.append("\n--- Facts About The User ---")
+        prompt_parts.append("These are facts you remember about THE USER you are talking to. Use them to personalize your responses:\n")
         for mem in memories:
             prompt_parts.append(f"- {mem.fact}")
-        prompt_parts.append("\n--- End of Memories ---\n")
+        prompt_parts.append("\n--- End of User Facts ---\n")
     
     return "\n".join(prompt_parts)
 
@@ -239,7 +241,7 @@ async def _generate_response(
                             type=genai_types.Type.STRING,
                             description=(
                                 "The fact to remember about the user. "
-                                "Write it from the user's perspective (e.g., 'I love pizza' not 'User loves pizza'). "
+                                "ALWAYS write in THIRD PERSON about the user (e.g., 'The user loves pizza', 'The user has blue hair'). "
                                 "Be concise but complete."
                             ),
                         ),
@@ -853,6 +855,44 @@ async def create_memory(
         fact=memory.fact,
         scope=memory.scope,
     )
+
+
+class DeleteSingleMemoryResponse(BaseModel):
+    """Response model for deleting a single memory."""
+    deleted: bool
+    memory_id: str
+
+
+@router.delete("/memories/id/{memory_id}", response_model=DeleteSingleMemoryResponse)
+async def delete_single_memory(
+    memory_id: str,
+    memory_service: MemoryService = Depends(get_memory_service),
+) -> DeleteSingleMemoryResponse:
+    """
+    Delete a single memory by its ID.
+    
+    Args:
+        memory_id: Full memory resource name/ID
+        
+    Returns:
+        Whether the memory was deleted
+    """
+    if not memory_service:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory service not available",
+        )
+    
+    try:
+        success = await memory_service.delete_memory(memory_id)
+        logger.info(f"Delete memory {memory_id}: {'success' if success else 'not found'}")
+        return DeleteSingleMemoryResponse(deleted=success, memory_id=memory_id)
+    except Exception as e:
+        logger.error(f"Failed to delete memory {memory_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete memory: {str(e)}",
+        )
 
 
 @router.delete("/memories/{persona_name}", response_model=DeleteMemoriesResponse)

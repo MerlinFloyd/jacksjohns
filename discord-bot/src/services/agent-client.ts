@@ -15,6 +15,7 @@ import type {
   SessionInfo,
   MemoryInfo,
   DeleteMemoriesResponse,
+  DeleteSingleMemoryResponse,
   ErrorInterpretRequest,
   ErrorInterpretResponse,
   GenerateChannelMemoriesResponse,
@@ -191,6 +192,15 @@ class AgentClient {
       path += `?user_id=${encodeURIComponent(userId)}`;
     }
     return this.request<DeleteMemoriesResponse>("DELETE", path);
+  }
+
+  // Delete a single memory by ID
+  async deleteSingleMemory(memoryId: string): Promise<DeleteSingleMemoryResponse> {
+    logger.info(`Deleting single memory: ${memoryId}`);
+    return this.request<DeleteSingleMemoryResponse>(
+      "DELETE",
+      `/api/chat/memories/id/${encodeURIComponent(memoryId)}`
+    );
   }
 
   // Delete channel session

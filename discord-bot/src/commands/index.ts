@@ -27,6 +27,7 @@ import { handlePersonaRename } from "./persona/rename";
 import { handleImagine } from "./imagine";
 import { handleMemories } from "./memories";
 import { handleRemember } from "./remember";
+import { handleForget } from "./forget";
 
 // Command location restrictions
 const ADMIN_CHANNEL_COMMANDS = [
@@ -197,6 +198,32 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
     .setName("remember")
     .setDescription("Save memories from this conversation (use in persona channels)")
     .toJSON(),
+
+  // Forget command - delete memories
+  new SlashCommandBuilder()
+    .setName("forget")
+    .setDescription("Delete memories for a persona")
+    .addStringOption((option) =>
+      option
+        .setName("persona")
+        .setDescription("Name of the persona")
+        .setRequired(true)
+    )
+    .addIntegerOption((option) =>
+      option
+        .setName("number")
+        .setDescription("Memory number to delete (use /forget to see list)")
+        .setRequired(false)
+        .setMinValue(1)
+        .setMaxValue(20)
+    )
+    .addBooleanOption((option) =>
+      option
+        .setName("all")
+        .setDescription("Delete ALL your memories with this persona")
+        .setRequired(false)
+    )
+    .toJSON(),
 ];
 
 /**
@@ -275,6 +302,9 @@ export async function handleCommand(
         break;
       case "remember":
         await handleRemember(interaction);
+        break;
+      case "forget":
+        await handleForget(interaction);
         break;
       default:
         await interaction.reply({

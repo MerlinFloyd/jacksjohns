@@ -79,6 +79,12 @@ export interface DeleteMemoriesResponse {
   user_id: string | null;
 }
 
+// Delete single memory response
+export interface DeleteSingleMemoryResponse {
+  deleted: boolean;
+  memory_id: string;
+}
+
 // Generate memories from channel session
 export interface GenerateChannelMemoriesResponse {
   status: string;
