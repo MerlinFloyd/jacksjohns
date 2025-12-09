@@ -47,3 +47,9 @@ variable "discord_bot_image" {
   type        = string
   default     = ""
 }
+
+variable "github_repository" {
+  description = "GitHub repository in format owner/repo"
+  type        = string
+  default     = ""
+}

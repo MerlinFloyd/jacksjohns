@@ -13,3 +13,6 @@ gemini_image_model     = "gemini-2.5-flash-image"
 # discord_bot_image   = "us-central1-docker.pkg.dev/jacks-johns/discord-bot-repo/discord-bot:latest"
 agent_service_image = ""
 discord_bot_image   = ""
+
+# GitHub repository for CI/CD (format: owner/repo)
+github_repository = "your-username/jacksjohns"

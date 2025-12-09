@@ -1,0 +1,103 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: jacks-johns
+  REGION: us-central1
+  REGISTRY: us-central1-docker.pkg.dev
+  REPOSITORY: discord-bot-repo
+
+jobs:
+  build-and-deploy:
+    name: Build and Deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+
+      - name: Build and push Agent Service
+        run: |
+          docker build -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/agent-service:${{ github.sha }} \
+                       -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/agent-service:latest \
+                       ./agent-service
+          docker push ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/agent-service:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/agent-service:latest
+
+      - name: Build and push Discord Bot
+        run: |
+          docker build -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/discord-bot:${{ github.sha }} \
+                       -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/discord-bot:latest \
+                       ./discord-bot
+          docker push ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/discord-bot:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/discord-bot:latest
+
+      - name: Deploy Agent Service to Cloud Run
+        id: deploy-agent
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: agent-service
+          region: ${{ env.REGION }}
+          image: ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/agent-service:${{ github.sha }}
+          flags: |
+            --service-account=agent-service@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
+            --allow-unauthenticated
+            --min-instances=0
+            --max-instances=10
+            --cpu=1
+            --memory=512Mi
+          env_vars: |
+            GCP_PROJECT_ID=${{ env.PROJECT_ID }}
+            GCP_REGION=${{ env.REGION }}
+            GEMINI_MODEL=gemini-2.5-flash
+            GEMINI_IMAGE_MODEL=gemini-2.5-flash-preview-05-20
+
+      - name: Deploy Discord Bot to Cloud Run
+        id: deploy-bot
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: discord-bot
+          region: ${{ env.REGION }}
+          image: ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/discord-bot:${{ github.sha }}
+          flags: |
+            --service-account=discord-bot@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
+            --no-allow-unauthenticated
+            --min-instances=1
+            --max-instances=1
+            --cpu=1
+            --memory=256Mi
+          env_vars: |
+            DISCORD_APPLICATION_ID=${{ secrets.DISCORD_APPLICATION_ID }}
+            AGENT_SERVICE_URL=${{ steps.deploy-agent.outputs.url }}
+          secrets: |
+            DISCORD_BOT_TOKEN=discord-bot-token:latest
+
+      - name: Output Service URLs
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Agent Service:** ${{ steps.deploy-agent.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Discord Bot:** ${{ steps.deploy-bot.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY

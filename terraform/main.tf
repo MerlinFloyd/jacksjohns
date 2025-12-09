@@ -31,6 +31,8 @@ resource "google_project_service" "required_apis" {
     "aiplatform.googleapis.com",
     "iam.googleapis.com",
     "cloudresourcemanager.googleapis.com",
+    "iamcredentials.googleapis.com",
+    "secretmanager.googleapis.com",
   ])
 
   project            = var.project_id

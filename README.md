@@ -137,7 +137,55 @@ docker compose up --build
 
 ## Deployment to GCP
 
-### Using Terraform
+### CI/CD with GitHub Actions
+
+The project includes a GitHub Actions workflow that automatically builds and deploys to Cloud Run on every push to `main`.
+
+#### Setup GitHub Actions CI/CD
+
+1. **Set up Terraform infrastructure** (one-time setup):
+   ```bash
+   cd terraform
+   cp terraform.tfvars.example terraform.tfvars
+   # Edit terraform.tfvars with your values including:
+   # - discord_bot_token
+   # - github_repository (format: owner/repo)
+   terraform init
+   terraform apply
+   ```
+
+2. **Note the Terraform outputs**:
+   ```bash
+   terraform output
+   ```
+   This will show you:
+   - `wif_provider` - Workload Identity Provider
+   - `wif_service_account` - Service Account email
+
+3. **Add GitHub Repository Secrets** (Settings → Secrets and variables → Actions):
+
+   | Secret Name | Value |
+   |-------------|-------|
+   | `WIF_PROVIDER` | Output from `terraform output wif_provider` |
+   | `WIF_SERVICE_ACCOUNT` | Output from `terraform output wif_service_account` |
+   | `DISCORD_APPLICATION_ID` | Your Discord Application ID (`1447797969423175742`) |
+
+4. **Push to main branch** to trigger deployment:
+   ```bash
+   git add .
+   git commit -m "Deploy to Cloud Run"
+   git push origin main
+   ```
+
+The workflow will:
+- Build Docker images for both services
+- Push images to Artifact Registry
+- Deploy Agent Service to Cloud Run
+- Deploy Discord Bot to Cloud Run (with Secret Manager integration)
+
+### Manual Terraform Deployment
+
+If you prefer manual deployment without GitHub Actions:
 
 1. Initialize Terraform:
    ```bash
@@ -147,16 +195,25 @@ docker compose up --build
    terraform init
    ```
 
-2. Review and apply:
+2. Build and push Docker images:
+   ```bash
+   # Configure Docker for Artifact Registry
+   gcloud auth configure-docker us-central1-docker.pkg.dev
+   
+   # Build and tag images
+   docker build -t us-central1-docker.pkg.dev/jacks-johns/discord-bot-repo/agent-service:latest ./agent-service
+   docker build -t us-central1-docker.pkg.dev/jacks-johns/discord-bot-repo/discord-bot:latest ./discord-bot
+   
+   # Push to Artifact Registry
+   docker push us-central1-docker.pkg.dev/jacks-johns/discord-bot-repo/agent-service:latest
+   docker push us-central1-docker.pkg.dev/jacks-johns/discord-bot-repo/discord-bot:latest
+   ```
+
+3. Update `terraform.tfvars` with image paths and apply:
    ```bash
    terraform plan
    terraform apply
    ```
-
-### Manual Deployment
-
-1. Build and push images to Artifact Registry
-2. Deploy to Cloud Run
 
 ## Development
 
