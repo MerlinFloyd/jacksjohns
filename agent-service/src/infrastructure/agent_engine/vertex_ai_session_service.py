@@ -114,13 +114,12 @@ class VertexAiSessionService(SessionService):
         try:
             agent_engine_name = self._get_agent_engine_name()
             
-            # Create session via API using dict config
-            # Note: The Agent Engine Sessions API uses dictionaries, not typed objects
+            # Create session via API
+            # The sessions.create method takes agent_engine name and config
             api_session = self._client.agent_engines.sessions.create(
-                parent=agent_engine_name,
-                session={
-                    "user_id": user_id,
-                    "state": initial_state or {},
+                agent_engine=agent_engine_name,
+                config={
+                    "session_state": initial_state or {},
                 },
             )
             
@@ -158,7 +157,8 @@ class VertexAiSessionService(SessionService):
             session_name = f"{agent_engine_name}/sessions/{session_id}"
             
             api_session = self._client.agent_engines.sessions.get(
-                name=session_name,
+                agent_engine=agent_engine_name,
+                session=session_id,
             )
             
             return self._convert_to_session(api_session, app_name)
@@ -195,13 +195,14 @@ class VertexAiSessionService(SessionService):
             # Create the event content using dict config
             role = "user" if event.role == "user" else "model"
             
-            # Append event to session using the sessions.events.append API
-            self._client.agent_engines.sessions.events.append(
-                name=session_name,
-                author=role,
-                invocation_id="1",  # Required field
-                timestamp=datetime.now(tz=timezone.utc),
+            # Append event to session using the sessions.append_event API
+            self._client.agent_engines.sessions.append_event(
+                agent_engine=agent_engine_name,
+                session=session_id,
                 config={
+                    "author": role,
+                    "invocation_id": "1",
+                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
                     "content": {
                         "role": role,
                         "parts": [{"text": event.content}],
@@ -241,10 +242,9 @@ class VertexAiSessionService(SessionService):
         try:
             agent_engine_name = self._get_agent_engine_name()
             
-            # List sessions filtered by user_id
+            # List sessions for the agent engine
             response = self._client.agent_engines.sessions.list(
-                parent=agent_engine_name,
-                filter=f'user_id="{user_id}"',
+                agent_engine=agent_engine_name,
             )
             
             sessions = []
@@ -281,9 +281,11 @@ class VertexAiSessionService(SessionService):
         
         try:
             agent_engine_name = self._get_agent_engine_name()
-            session_name = f"{agent_engine_name}/sessions/{session_id}"
             
-            self._client.agent_engines.sessions.delete(name=session_name)
+            self._client.agent_engines.sessions.delete(
+                agent_engine=agent_engine_name,
+                session=session_id,
+            )
             logger.info(f"Deleted session {session_id}")
             return True
             
@@ -314,13 +316,13 @@ class VertexAiSessionService(SessionService):
         
         try:
             agent_engine_name = self._get_agent_engine_name()
-            session_name = f"{agent_engine_name}/sessions/{session_id}"
             
             # Update session with new state using dict config
             api_session = self._client.agent_engines.sessions.update(
-                session={
-                    "name": session_name,
-                    "state": state,
+                agent_engine=agent_engine_name,
+                session=session_id,
+                config={
+                    "session_state": state,
                 },
             )
             
