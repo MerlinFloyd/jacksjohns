@@ -3,7 +3,7 @@
  * 
  * Command Locations:
  * - Admin channel (#general by default): /persona create, /persona delete, /persona list, /persona rename
- * - Persona channels: /persona edit, /imagine
+ * - Persona channels: /persona edit, /imagine, /remember
  * - Any channel: /memories
  */
 
@@ -26,6 +26,7 @@ import { handlePersonaDelete } from "./persona/delete";
 import { handlePersonaRename } from "./persona/rename";
 import { handleImagine } from "./imagine";
 import { handleMemories } from "./memories";
+import { handleRemember } from "./remember";
 
 // Command location restrictions
 const ADMIN_CHANNEL_COMMANDS = [
@@ -38,6 +39,7 @@ const ADMIN_CHANNEL_COMMANDS = [
 const PERSONA_CHANNEL_COMMANDS = [
   "persona edit",
   "imagine",
+  "remember",
 ];
 
 // Command definitions
@@ -189,6 +191,12 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
         .setRequired(false)
     )
     .toJSON(),
+
+  // Remember command - generate memories from conversation (persona channel only)
+  new SlashCommandBuilder()
+    .setName("remember")
+    .setDescription("Save memories from this conversation (use in persona channels)")
+    .toJSON(),
 ];
 
 /**
@@ -264,6 +272,9 @@ export async function handleCommand(
         break;
       case "memories":
         await handleMemories(interaction);
+        break;
+      case "remember":
+        await handleRemember(interaction);
         break;
       default:
         await interaction.reply({

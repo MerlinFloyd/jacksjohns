@@ -17,6 +17,7 @@ import type {
   DeleteMemoriesResponse,
   ErrorInterpretRequest,
   ErrorInterpretResponse,
+  GenerateChannelMemoriesResponse,
 } from "../types/api";
 
 class AgentClient {
@@ -199,6 +200,19 @@ class AgentClient {
       "DELETE",
       `/api/chat/channel-sessions/${encodeURIComponent(channelId)}`
     );
+  }
+
+  // Generate memories from channel session (without ending the session)
+  async generateChannelMemories(
+    channelId: string,
+    userId?: string
+  ): Promise<GenerateChannelMemoriesResponse> {
+    logger.info(`Generating memories from channel: ${channelId}`);
+    let path = `/api/chat/channel-sessions/${encodeURIComponent(channelId)}/generate-memories`;
+    if (userId) {
+      path += `?user_id=${encodeURIComponent(userId)}`;
+    }
+    return this.request<GenerateChannelMemoriesResponse>("POST", path);
   }
 
   // Interpret error for user-friendly message

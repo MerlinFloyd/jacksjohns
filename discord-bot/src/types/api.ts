@@ -78,6 +78,17 @@ export interface DeleteMemoriesResponse {
   user_id: string | null;
 }
 
+// Generate memories from channel session
+export interface GenerateChannelMemoriesResponse {
+  status: string;
+  channel_id: string;
+  session_id: string;
+  persona_name: string;
+  user_id: string;
+  memories_generated: number;
+  memories: MemoryInfo[];
+}
+
 // Error interpretation
 export interface ErrorInterpretRequest {
   error_message: string;

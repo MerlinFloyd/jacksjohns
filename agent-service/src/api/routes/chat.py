@@ -509,6 +509,81 @@ async def end_session(
     }
 
 
+@router.post("/channel-sessions/{channel_id}/generate-memories")
+async def generate_channel_memories(
+    channel_id: str,
+    user_id: str | None = None,
+    channel_session_repo=Depends(get_channel_session_repository),
+    memory_service: MemoryService = Depends(get_memory_service),
+) -> dict[str, Any]:
+    """
+    Generate memories from a channel session WITHOUT ending the session.
+    
+    This allows extracting long-term memories from an ongoing conversation
+    while keeping the session alive for continued interaction.
+    
+    Args:
+        channel_id: Discord channel ID
+        user_id: Optional user ID to scope memories to (if not provided, uses session's user_id)
+        
+    Returns:
+        Status and list of generated memories
+    """
+    if not channel_session_repo:
+        return {"status": "no_repository", "memories_generated": 0, "memories": []}
+    
+    # Get the session mapping
+    session_mapping = await channel_session_repo.get_session(channel_id)
+    
+    if not session_mapping:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No session found for channel '{channel_id}'",
+        )
+    
+    if not memory_service:
+        return {"status": "no_memory_service", "memories_generated": 0, "memories": []}
+    
+    try:
+        # Use the provided user_id or fall back to session's user_id
+        effective_user_id = user_id or session_mapping.user_id
+        
+        # Generate user-specific memories from the session
+        user_scope = MemoryScope(
+            persona_name=session_mapping.persona_name,
+            user_id=effective_user_id,
+        )
+        memories = await memory_service.generate_memories_from_session(
+            scope=user_scope,
+            session_id=session_mapping.session_id,
+        )
+        
+        logger.info(
+            f"Generated {len(memories)} memories from channel {channel_id}, "
+            f"session {session_mapping.session_id}, user {effective_user_id}"
+        )
+        
+        return {
+            "status": "completed",
+            "channel_id": channel_id,
+            "session_id": session_mapping.session_id,
+            "persona_name": session_mapping.persona_name,
+            "user_id": effective_user_id,
+            "memories_generated": len(memories),
+            "memories": [
+                {"id": m.id, "fact": m.fact, "scope": m.scope}
+                for m in memories
+            ],
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to generate memories from channel {channel_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate memories: {str(e)}",
+        )
+
+
 @router.delete("/channel-sessions/{channel_id}")
 async def delete_channel_session(
     channel_id: str,
