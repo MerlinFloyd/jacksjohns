@@ -9,7 +9,6 @@ import logging
 from typing import Any
 
 import vertexai
-from vertexai.preview import reasoning_engines
 
 logger = logging.getLogger(__name__)
 
@@ -72,14 +71,12 @@ class AgentEngineManager:
     async def get_or_create_agent_engine(
         self,
         display_name: str = "jacksjohns-bot-engine",
-        description: str = "Agent Engine for Jack's Johns Discord Bot - provides Sessions and Memory Bank",
     ) -> str:
         """
         Get existing or create a new Agent Engine instance.
         
         Args:
-            display_name: Display name for new engine
-            description: Description for new engine
+            display_name: Display name for new engine (used in logging only)
             
         Returns:
             Agent Engine ID (just the ID part, not full resource name)
@@ -102,15 +99,13 @@ class AgentEngineManager:
                 self._agent_engine_id = None
         
         # Create new Agent Engine
-        logger.info("Creating new Agent Engine instance...")
+        logger.info(f"Creating new Agent Engine instance ({display_name})...")
         
         try:
             # Create Agent Engine with default configuration
-            # This provides Sessions and Memory Bank services
-            engine = self._client.agent_engines.create(
-                display_name=display_name,
-                description=description,
-            )
+            # Per the docs: client.agent_engines.create() takes no args for basic instance
+            # This provides Sessions and Memory Bank services out of the box
+            engine = self._client.agent_engines.create()
             
             # Extract the ID from the resource name
             # Format: projects/{project}/locations/{location}/reasoningEngines/{id}
@@ -119,6 +114,10 @@ class AgentEngineManager:
             
             logger.info(f"Created Agent Engine: {self._agent_engine_id}")
             logger.info(f"Full resource name: {resource_name}")
+            logger.info(
+                f"IMPORTANT: Set AGENT_ENGINE_ID={self._agent_engine_id} in your "
+                "environment to reuse this instance."
+            )
             
             return self._agent_engine_id
             
