@@ -104,22 +104,28 @@ class VertexAiMemoryService(MemoryService):
                 scope=scope.to_dict(),
             )
             
-            # The operation may be async - check for response
+            # The operation returns with response field containing GenerateMemoriesResponse
+            # GenerateMemoriesResponse has generated_memories list
             response = operation
             if hasattr(operation, 'response') and operation.response is not None:
                 response = operation.response
             
             # Convert response to Memory objects
+            # Response structure: response.generated_memories -> list of GenerateMemoriesResponseGeneratedMemory
+            # Each has .memory with the actual Memory object
             memories = []
             if response:
-                # Response might have 'memories' attribute or be iterable
-                mem_list = getattr(response, 'memories', None) or []
-                for mem in mem_list:
-                    memories.append(Memory(
-                        id=getattr(mem, 'name', "") or "",
-                        fact=getattr(mem, 'fact', "") or str(mem),
-                        scope=scope.to_dict(),
-                    ))
+                # Try generated_memories first (correct field name from API)
+                gen_mems = getattr(response, 'generated_memories', None) or []
+                for gen_mem in gen_mems:
+                    # Extract the actual memory from the generated memory wrapper
+                    mem = getattr(gen_mem, 'memory', gen_mem)
+                    if mem:
+                        memories.append(Memory(
+                            id=getattr(mem, 'name', "") or "",
+                            fact=getattr(mem, 'fact', "") or str(mem),
+                            scope=scope.to_dict(),
+                        ))
             
             logger.info(
                 f"Generated {len(memories)} memories for scope={scope.to_dict()}"
@@ -168,22 +174,28 @@ class VertexAiMemoryService(MemoryService):
                 scope=scope.to_dict(),
             )
             
-            # The operation may be async - check for response
+            # The operation returns with response field containing GenerateMemoriesResponse
+            # GenerateMemoriesResponse has generated_memories list
             response = operation
             if hasattr(operation, 'response') and operation.response is not None:
                 response = operation.response
             
             # Convert response to Memory objects
+            # Response structure: response.generated_memories -> list of GenerateMemoriesResponseGeneratedMemory
+            # Each has .memory with the actual Memory object
             memories = []
             if response:
-                # Response might have 'memories' attribute or be iterable
-                mem_list = getattr(response, 'memories', None) or []
-                for mem in mem_list:
-                    memories.append(Memory(
-                        id=getattr(mem, 'name', "") or "",
-                        fact=getattr(mem, 'fact', "") or str(mem),
-                        scope=scope.to_dict(),
-                    ))
+                # Try generated_memories first (correct field name from API)
+                gen_mems = getattr(response, 'generated_memories', None) or []
+                for gen_mem in gen_mems:
+                    # Extract the actual memory from the generated memory wrapper
+                    mem = getattr(gen_mem, 'memory', gen_mem)
+                    if mem:
+                        memories.append(Memory(
+                            id=getattr(mem, 'name', "") or "",
+                            fact=getattr(mem, 'fact', "") or str(mem),
+                            scope=scope.to_dict(),
+                        ))
             
             logger.info(
                 f"Generated {len(memories)} memories from session for scope={scope.to_dict()}"
