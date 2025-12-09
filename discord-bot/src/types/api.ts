@@ -41,6 +41,7 @@ export interface ChatResponse {
   session_id: string;
   persona_name: string;
   memories_used: number;
+  memories_saved: number;  // Number of memories saved during this interaction
   should_respond: boolean;  // Whether the bot should actually send this response
 }
 

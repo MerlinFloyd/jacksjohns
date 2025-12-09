@@ -1,6 +1,7 @@
 """Chat API endpoints with session and memory support."""
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -69,6 +70,7 @@ class ChatResponse(BaseModel):
     session_id: str = Field(..., description="Session ID for continuing the conversation")
     persona_name: str = Field(..., description="Persona name used")
     memories_used: int = Field(0, description="Number of memories retrieved and used")
+    memories_saved: int = Field(0, description="Number of memories saved during this interaction")
     should_respond: bool = Field(True, description="Whether the bot should send this response")
 
 
@@ -107,6 +109,19 @@ class ErrorInterpretResponse(BaseModel):
     interpretation: str = Field(..., description="User-friendly interpretation of the error")
 
 
+# Memory tool instructions to add to system prompts
+MEMORY_TOOL_INSTRUCTIONS = """
+--- Memory Tool ---
+You have access to a save_memory tool. Use it when:
+- The user explicitly asks you to remember something (e.g., "Remember that...", "Don't forget...")
+- The user shares important personal information they'll want you to recall later
+- Examples: their name, preferences, allergies, important dates, relationships
+
+When saving a memory, write it from the user's perspective (e.g., "I love pizza" not "User loves pizza").
+Only save genuinely important facts, not every detail of the conversation.
+"""
+
+
 # Helper functions
 def _build_system_prompt(
     personality: str,
@@ -116,6 +131,7 @@ def _build_system_prompt(
     prompt_parts = [
         f"You are an AI persona with the following personality:\n{personality}\n",
         "\nIMPORTANT: Stay in character at all times. Respond as this persona would.\n",
+        MEMORY_TOOL_INSTRUCTIONS,
     ]
     
     if memories:
@@ -138,6 +154,7 @@ def _build_channel_system_prompt(
         f"You are {persona_name}. {personality}\n",
         "\nIMPORTANT: Stay in character at all times. Respond as this persona would.\n",
         CHANNEL_CHAT_INSTRUCTIONS.replace("{persona_name}", persona_name),
+        MEMORY_TOOL_INSTRUCTIONS,
     ]
     
     if memories:
@@ -150,12 +167,30 @@ def _build_channel_system_prompt(
     return "\n".join(prompt_parts)
 
 
+@dataclass
+class GenerateResponseResult:
+    """Result from generating a response, including any memories to save."""
+    text: str
+    memories_to_save: list[str]  # List of facts to save as memories
+
+
 async def _generate_response(
     message: str,
     system_prompt: str,
     conversation_history: list[dict[str, str]],
-) -> str:
-    """Generate AI response using Gemini."""
+    enable_memory_tool: bool = True,
+) -> GenerateResponseResult:
+    """Generate AI response using Gemini with optional memory tool.
+    
+    Args:
+        message: The user's message
+        system_prompt: System prompt for the persona
+        conversation_history: Previous messages in the conversation
+        enable_memory_tool: Whether to enable the save_memory tool
+        
+    Returns:
+        GenerateResponseResult with response text and any memories to save
+    """
     settings = get_settings()
     
     client = genai.Client(
@@ -185,19 +220,81 @@ async def _generate_response(
         )
     )
     
+    # Define the save_memory tool
+    save_memory_tool = genai_types.Tool(
+        function_declarations=[
+            genai_types.FunctionDeclaration(
+                name="save_memory",
+                description=(
+                    "Save an important fact about the user to long-term memory. "
+                    "Use this when the user explicitly asks you to remember something, "
+                    "or shares important personal information they want you to recall later. "
+                    "Examples: 'Remember that I love pizza', 'Don't forget my birthday is March 5th', "
+                    "'My name is Alex', 'I'm allergic to peanuts'."
+                ),
+                parameters=genai_types.Schema(
+                    type=genai_types.Type.OBJECT,
+                    properties={
+                        "fact": genai_types.Schema(
+                            type=genai_types.Type.STRING,
+                            description=(
+                                "The fact to remember about the user. "
+                                "Write it from the user's perspective (e.g., 'I love pizza' not 'User loves pizza'). "
+                                "Be concise but complete."
+                            ),
+                        ),
+                    },
+                    required=["fact"],
+                ),
+            )
+        ]
+    )
+    
+    # Build config with optional tool
+    config = genai_types.GenerateContentConfig(
+        system_instruction=system_prompt,
+        temperature=0.9,
+        top_p=0.95,
+        max_output_tokens=1024,
+    )
+    
+    if enable_memory_tool:
+        config.tools = [save_memory_tool]
+    
     # Generate response
     response = client.models.generate_content(
         model=settings.gemini_model,
         contents=contents,
-        config=genai_types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            temperature=0.9,
-            top_p=0.95,
-            max_output_tokens=1024,
-        ),
+        config=config,
     )
     
-    return response.text
+    # Extract text and any function calls
+    response_text = ""
+    memories_to_save = []
+    
+    if response.candidates and response.candidates[0].content.parts:
+        for part in response.candidates[0].content.parts:
+            # Check for text content
+            if hasattr(part, 'text') and part.text:
+                response_text += part.text
+            # Check for function calls
+            if hasattr(part, 'function_call') and part.function_call:
+                fc = part.function_call
+                if fc.name == "save_memory":
+                    # Extract the fact from the function call args
+                    fact = fc.args.get("fact", "")
+                    if fact:
+                        memories_to_save.append(fact)
+                        logger.info(f"LLM requested to save memory: {fact[:50]}...")
+    
+    # If no text was found but we have a response, try response.text
+    if not response_text and response.text:
+        response_text = response.text
+    
+    return GenerateResponseResult(
+        text=response_text,
+        memories_to_save=memories_to_save,
+    )
 
 
 async def _interpret_error(
@@ -373,13 +470,16 @@ async def chat(
         system_prompt = _build_system_prompt(persona.personality, memories)
         formatted_message = data.message
     
-    # Generate response
+    # Generate response (with memory tool enabled)
     try:
-        ai_response = await _generate_response(
+        response_result = await _generate_response(
             message=formatted_message,
             system_prompt=system_prompt,
             conversation_history=conversation_history,
+            enable_memory_tool=True,
         )
+        ai_response = response_result.text
+        memories_to_save = response_result.memories_to_save
     except Exception as e:
         logger.error(f"Failed to generate response: {e}")
         raise HTTPException(
@@ -393,6 +493,21 @@ async def chat(
         if ai_response.strip() == "[NO_RESPONSE]" or not ai_response.strip():
             should_respond = False
             ai_response = ""
+    
+    # Save any memories the LLM requested to save
+    memories_saved = 0
+    if memories_to_save and memory_service:
+        user_scope = MemoryScope(
+            persona_name=data.persona_name,
+            user_id=data.user_id,
+        )
+        for fact in memories_to_save:
+            try:
+                await memory_service.create_memory(scope=user_scope, fact=fact)
+                memories_saved += 1
+                logger.info(f"Saved memory for user {data.user_id}: {fact[:50]}...")
+            except Exception as e:
+                logger.warning(f"Failed to save memory '{fact[:30]}...': {e}")
     
     # Store interaction in session (even if not responding, for context)
     if session and session_service:
@@ -418,8 +533,8 @@ async def chat(
     
     logger.info(
         f"Chat completed: persona={data.persona_name}, user={data.user_id}, "
-        f"session={session.id if session else 'none'}, memories={memories_count}, "
-        f"should_respond={should_respond}"
+        f"session={session.id if session else 'none'}, memories_used={memories_count}, "
+        f"memories_saved={memories_saved}, should_respond={should_respond}"
     )
     
     return ChatResponse(
@@ -427,6 +542,7 @@ async def chat(
         session_id=session.id if session else "in-memory",
         persona_name=data.persona_name,
         memories_used=memories_count,
+        memories_saved=memories_saved,
         should_respond=should_respond,
     )
 
