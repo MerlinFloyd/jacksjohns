@@ -74,7 +74,7 @@ jobs:
             GCP_PROJECT_ID=${{ env.PROJECT_ID }}
             GCP_REGION=${{ env.REGION }}
             GEMINI_MODEL=gemini-2.5-flash
-            GEMINI_IMAGE_MODEL=gemini-2.5-flash-preview-05-20
+            GEMINI_IMAGE_MODEL=gemini-2.5-flash-image
 
       - name: Deploy Discord Bot to Cloud Run
         id: deploy-bot
