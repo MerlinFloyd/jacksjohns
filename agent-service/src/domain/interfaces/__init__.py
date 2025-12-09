@@ -2,5 +2,16 @@
 
 from .persona_repository import PersonaRepository
 from .image_generator import ImageGenerator
+from .memory_service import MemoryService, Memory, MemoryScope
+from .session_service import SessionService, Session, SessionEvent
 
-__all__ = ["PersonaRepository", "ImageGenerator"]
+__all__ = [
+    "PersonaRepository",
+    "ImageGenerator",
+    "MemoryService",
+    "Memory",
+    "MemoryScope",
+    "SessionService",
+    "Session",
+    "SessionEvent",
+]

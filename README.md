@@ -1,6 +1,6 @@
 # Discord Bot + AI Agent Service
 
-A Discord bot integrated with Google's Gemini AI for persona management and image generation.
+A Discord bot integrated with Google's Gemini AI for persona management, image generation, and conversational AI with long-term memory.
 
 ## Architecture
 
@@ -16,18 +16,28 @@ A Discord bot integrated with Google's Gemini AI for persona management and imag
                                    - Gemini 2.5 Flash Image
                                           │
                                           ▼
-                                   Firestore (Native)
-                                   - Persona persistence
+                              ┌───────────────────────┐
+                              │    GCP Services       │
+                              ├───────────────────────┤
+                              │ Firestore (Native)    │
+                              │ - Persona persistence │
+                              ├───────────────────────┤
+                              │ Agent Engine          │
+                              │ - Sessions (chat)     │
+                              │ - Memory Bank         │
+                              └───────────────────────┘
 ```
 
 ## Features
 
-### Implemented (Features 1-3)
+### Implemented
 - **Create AI Persona**: `/persona create <name> <personality>` - Create custom AI personalities
 - **List/Edit Personas**: `/persona list`, `/persona edit <name> <field> <value>` - Manage personas
 - **Image Generation**: `/imagine <prompt>` - Generate images using Gemini 2.5 Flash Image
+- **Chat with Memory**: `/chat talk <persona> <message>` - Conversational AI with persistent memory
+- **Memory Management**: `/chat memories`, `/chat teach` - View and manage persona memories
 
-### Planned (Features 4-5)
+### Planned
 - **Chat Channel Integration**: Assign bot to a channel for AI conversations
 - **Voice Chat**: Real-time voice conversations using Vertex AI Live API
 
@@ -130,15 +140,34 @@ docker compose up --build
 | `/api/personas/{name}` | DELETE | Delete persona |
 | `/api/images/generate` | POST | Generate image (JSON response) |
 | `/api/images/generate/raw` | POST | Generate image (raw bytes) |
+| `/api/chat` | POST | Chat with a persona (with memory) |
+| `/api/chat/end-session` | POST | End session and generate memories |
+| `/api/chat/sessions` | GET | List user's sessions |
+| `/api/chat/memories` | GET | List memories for persona/user |
+| `/api/chat/memories` | POST | Create a memory directly |
 
 ## Discord Commands
 
+### Persona Management
 | Command | Description |
 |---------|-------------|
 | `/persona create <name> <personality>` | Create a new AI persona |
 | `/persona list` | List all personas |
 | `/persona edit <name> <field> <value>` | Edit an existing persona |
+
+### Image Generation
+| Command | Description |
+|---------|-------------|
 | `/imagine <prompt> [aspect_ratio]` | Generate an image from text |
+
+### Chat with Memory
+| Command | Description |
+|---------|-------------|
+| `/chat talk <persona> <message>` | Chat with a persona (uses memory) |
+| `/chat end <persona> [save_memories]` | End conversation and save memories |
+| `/chat sessions [persona]` | View your active chat sessions |
+| `/chat memories <persona> [shared]` | View memories a persona has |
+| `/chat teach <persona> <fact> [shared]` | Teach a persona something directly |
 
 ## Deployment to GCP
 
@@ -245,7 +274,9 @@ bun run src/index.ts
 - **AI Models**: Gemini 2.5 Flash, Gemini 2.5 Flash Image
 - **Infrastructure**: Docker, GCP Cloud Run, Terraform
 - **Architecture**: Clean Architecture, SOLID principles
-- **Data Storage**: Firestore (Native mode) for persona persistence
+- **Data Storage**: 
+  - Firestore (Native mode) for persona persistence
+  - Agent Engine for sessions and memory bank
 
 ## Storage
 
@@ -267,6 +298,39 @@ personas/
 **Configuration:**
 - `USE_FIRESTORE=true` (default) - Enable Firestore persistence
 - `FIRESTORE_COLLECTION=personas` (default) - Collection name for personas
+
+### Agent Engine (Sessions & Memory Bank)
+
+The service uses Vertex AI Agent Engine for conversation management:
+
+#### Sessions
+Sessions maintain conversation history within a single chat session:
+- Each user-persona combination can have multiple sessions
+- Sessions store the chronological sequence of messages
+- Sessions are automatically created when chatting with a persona
+
+#### Memory Bank
+Memory Bank stores long-term memories that persist across sessions:
+
+**Memory Scoping Strategy:**
+- **Shared Persona Memories**: `scope = {app_name: "<persona_name>"}`
+  - Memories shared across ALL users for a persona
+  - Example: "I am a friendly assistant who loves helping with coding"
+  
+- **Per-User Memories**: `scope = {app_name: "<persona_name>", user_id: "<discord_user_id>"}`
+  - Personal memories specific to each user-persona relationship
+  - Example: "John prefers detailed explanations with code examples"
+
+**Memory Generation:**
+- Memories are automatically extracted from conversations when sessions end
+- Users can also directly teach personas facts using `/chat teach`
+
+**Configuration:**
+- `USE_AGENT_ENGINE=true` (default) - Enable sessions and memory
+- `AGENT_ENGINE_ID=` - Set to reuse an existing Agent Engine instance
+- `AGENT_ENGINE_DISPLAY_NAME=jacksjohns-bot-engine` - Display name for new instances
+
+**Note:** If `AGENT_ENGINE_ID` is not set, a new Agent Engine instance will be created automatically on first run. The ID will be logged - you should set it in your environment to reuse the same instance.
 
 ## License
 

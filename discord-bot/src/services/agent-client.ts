@@ -5,7 +5,16 @@
 import { config } from "../config/env";
 import { logger } from "../utils/logger";
 import type { Persona, PersonaCreate, PersonaUpdate } from "../types/persona";
-import type { ImageGenerateRequest, ImageGenerateResponse, HealthResponse } from "../types/api";
+import type {
+  ImageGenerateRequest,
+  ImageGenerateResponse,
+  HealthResponse,
+  ChatRequest,
+  ChatResponse,
+  EndSessionResponse,
+  SessionInfo,
+  MemoryInfo,
+} from "../types/api";
 
 class AgentClient {
   private baseUrl: string;
@@ -102,6 +111,59 @@ class AgentClient {
 
     const arrayBuffer = await response.arrayBuffer();
     return Buffer.from(arrayBuffer);
+  }
+
+  // Chat operations
+  async chat(data: ChatRequest): Promise<ChatResponse> {
+    logger.info(`Chat request: persona=${data.persona_name}, user=${data.user_id}`);
+    return this.request<ChatResponse>("POST", "/api/chat", data);
+  }
+
+  async endSession(
+    personaName: string,
+    userId: string,
+    sessionId: string,
+    generateMemories: boolean = true
+  ): Promise<EndSessionResponse> {
+    logger.info(`Ending session: ${sessionId}`);
+    const params = new URLSearchParams({
+      persona_name: personaName,
+      user_id: userId,
+      session_id: sessionId,
+      generate_memories: generateMemories.toString(),
+    });
+    return this.request<EndSessionResponse>("POST", `/api/chat/end-session?${params}`);
+  }
+
+  async listSessions(personaName: string, userId: string): Promise<SessionInfo[]> {
+    const params = new URLSearchParams({
+      persona_name: personaName,
+      user_id: userId,
+    });
+    return this.request<SessionInfo[]>("GET", `/api/chat/sessions?${params}`);
+  }
+
+  async listMemories(
+    personaName: string,
+    userId?: string,
+    query?: string,
+    limit: number = 20
+  ): Promise<MemoryInfo[]> {
+    const params = new URLSearchParams({ persona_name: personaName });
+    if (userId) params.append("user_id", userId);
+    if (query) params.append("query", query);
+    params.append("limit", limit.toString());
+    return this.request<MemoryInfo[]>("GET", `/api/chat/memories?${params}`);
+  }
+
+  async createMemory(
+    personaName: string,
+    fact: string,
+    userId?: string
+  ): Promise<MemoryInfo> {
+    const params = new URLSearchParams({ persona_name: personaName, fact });
+    if (userId) params.append("user_id", userId);
+    return this.request<MemoryInfo>("POST", `/api/chat/memories?${params}`);
   }
 }
 

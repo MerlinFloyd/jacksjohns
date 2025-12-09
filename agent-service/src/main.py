@@ -7,7 +7,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config.settings import get_settings
-from .api.routes import health_router, persona_router, image_router
+from .api.routes import health_router, persona_router, image_router, chat_router
+from .api.dependencies import initialize_services
 
 # Configure logging
 logging.basicConfig(
@@ -20,8 +21,8 @@ logger = logging.getLogger(__name__)
 # Create FastAPI application
 app = FastAPI(
     title="Agent Service",
-    description="AI Agent Service for Discord Bot - Provides persona management and image generation",
-    version="0.1.0",
+    description="AI Agent Service for Discord Bot - Provides persona management, image generation, and chat with memory",
+    version="0.2.0",
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -39,6 +40,7 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(persona_router)
 app.include_router(image_router)
+app.include_router(chat_router)
 
 
 @app.on_event("startup")
@@ -51,7 +53,13 @@ async def startup_event() -> None:
     logger.info(f"Region: {settings.gcp_region}")
     logger.info(f"Gemini Model: {settings.gemini_model}")
     logger.info(f"Image Model: {settings.gemini_image_model}")
+    logger.info(f"Agent Engine Enabled: {settings.use_agent_engine}")
+    if settings.agent_engine_id:
+        logger.info(f"Agent Engine ID: {settings.agent_engine_id}")
     logger.info("=" * 50)
+    
+    # Initialize Agent Engine services (Sessions and Memory Bank)
+    await initialize_services()
 
 
 @app.on_event("shutdown")

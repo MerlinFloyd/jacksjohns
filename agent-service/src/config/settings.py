@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     firestore_collection: str = "personas"
     use_firestore: bool = True  # Set to False to use in-memory storage
 
+    # Agent Engine Configuration (for Sessions and Memory Bank)
+    agent_engine_id: str | None = None  # Will be auto-created if not set
+    use_agent_engine: bool = True  # Set to False to disable sessions/memory
+    agent_engine_display_name: str = "jacksjohns-bot-engine"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

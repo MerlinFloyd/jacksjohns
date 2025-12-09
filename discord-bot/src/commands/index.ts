@@ -10,6 +10,13 @@ import {
 
 import { handlePersonaCreate, handlePersonaList, handlePersonaEdit } from "./persona/create";
 import { handleImagine } from "./imagine";
+import {
+  handleChat,
+  handleChatEnd,
+  handleChatSessions,
+  handleChatMemories,
+  handleChatTeach,
+} from "./chat";
 
 // Command definitions
 export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
@@ -96,6 +103,99 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
         )
     )
     .toJSON(),
+
+  // Chat command - interact with personas with memory
+  new SlashCommandBuilder()
+    .setName("chat")
+    .setDescription("Chat with AI personas - conversations with memory")
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("talk")
+        .setDescription("Send a message to a persona")
+        .addStringOption((option) =>
+          option
+            .setName("persona")
+            .setDescription("Name of the persona to chat with")
+            .setRequired(true)
+        )
+        .addStringOption((option) =>
+          option
+            .setName("message")
+            .setDescription("Your message to the persona")
+            .setRequired(true)
+            .setMaxLength(4000)
+        )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("end")
+        .setDescription("End a conversation and save memories")
+        .addStringOption((option) =>
+          option
+            .setName("persona")
+            .setDescription("Name of the persona")
+            .setRequired(true)
+        )
+        .addBooleanOption((option) =>
+          option
+            .setName("save_memories")
+            .setDescription("Generate memories from this conversation (default: true)")
+            .setRequired(false)
+        )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("sessions")
+        .setDescription("View your active chat sessions")
+        .addStringOption((option) =>
+          option
+            .setName("persona")
+            .setDescription("Filter by persona name (optional)")
+            .setRequired(false)
+        )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("memories")
+        .setDescription("View memories a persona has about you")
+        .addStringOption((option) =>
+          option
+            .setName("persona")
+            .setDescription("Name of the persona")
+            .setRequired(true)
+        )
+        .addBooleanOption((option) =>
+          option
+            .setName("shared")
+            .setDescription("View shared memories instead of personal (default: false)")
+            .setRequired(false)
+        )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("teach")
+        .setDescription("Teach a persona something directly")
+        .addStringOption((option) =>
+          option
+            .setName("persona")
+            .setDescription("Name of the persona")
+            .setRequired(true)
+        )
+        .addStringOption((option) =>
+          option
+            .setName("fact")
+            .setDescription("The fact to teach the persona")
+            .setRequired(true)
+            .setMaxLength(500)
+        )
+        .addBooleanOption((option) =>
+          option
+            .setName("shared")
+            .setDescription("Make this a shared memory for all users (default: false)")
+            .setRequired(false)
+        )
+    )
+    .toJSON(),
 ];
 
 // Command handler router
@@ -110,6 +210,9 @@ export async function handleCommand(
       break;
     case "imagine":
       await handleImagine(interaction);
+      break;
+    case "chat":
+      await handleChatCommand(interaction);
       break;
     default:
       await interaction.reply({
@@ -133,6 +236,35 @@ async function handlePersonaCommand(
       break;
     case "edit":
       await handlePersonaEdit(interaction);
+      break;
+    default:
+      await interaction.reply({
+        content: `Unknown subcommand: ${subcommand}`,
+        ephemeral: true,
+      });
+  }
+}
+
+async function handleChatCommand(
+  interaction: ChatInputCommandInteraction
+): Promise<void> {
+  const subcommand = interaction.options.getSubcommand();
+
+  switch (subcommand) {
+    case "talk":
+      await handleChat(interaction);
+      break;
+    case "end":
+      await handleChatEnd(interaction);
+      break;
+    case "sessions":
+      await handleChatSessions(interaction);
+      break;
+    case "memories":
+      await handleChatMemories(interaction);
+      break;
+    case "teach":
+      await handleChatTeach(interaction);
       break;
     default:
       await interaction.reply({
