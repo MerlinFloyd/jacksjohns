@@ -241,7 +241,15 @@ Be concise (1-2 sentences). Don't use technical jargon."""
                 max_output_tokens=256,
             ),
         )
-        return response.text
+        # Ensure we return a non-None string
+        text = response.text
+        if text is None:
+            # Try to extract text from parts if .text is None
+            if response.candidates and response.candidates[0].content.parts:
+                text = response.candidates[0].content.parts[0].text or ""
+            else:
+                text = f"Something went wrong: {error_message}"
+        return text
     except Exception as e:
         logger.error(f"Failed to interpret error: {e}")
         return f"Something went wrong: {error_message}"
