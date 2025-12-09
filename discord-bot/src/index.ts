@@ -16,6 +16,32 @@ import { config } from "./config/env";
 import { commands, handleCommand } from "./commands";
 import { logger } from "./utils/logger";
 
+// Health check server for Cloud Run
+const PORT = process.env.PORT || 8080;
+let isReady = false;
+
+const server = Bun.serve({
+  port: PORT,
+  fetch(req) {
+    const url = new URL(req.url);
+    if (url.pathname === "/health" || url.pathname === "/") {
+      if (isReady) {
+        return new Response(JSON.stringify({ status: "healthy", service: "discord-bot" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ status: "starting" }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response("Not Found", { status: 404 });
+  },
+});
+
+logger.info(`Health check server listening on port ${PORT}`);
+
 // Create Discord client with required intents
 const client = new Client({
   intents: [
@@ -45,6 +71,7 @@ async function registerCommands(): Promise<void> {
 
 // Event handlers
 client.once(Events.ClientReady, (readyClient) => {
+  isReady = true;
   logger.info("=".repeat(50));
   logger.info(`Discord bot ready!`);
   logger.info(`Logged in as: ${readyClient.user.tag}`);
