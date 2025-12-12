@@ -4,8 +4,8 @@ project_id             = "jacks-johns"
 region                 = "us-central1"
 discord_bot_token      = "your_discord_bot_token_here"
 discord_application_id = "1447797969423175742"
-gemini_model           = "gemini-2.5-flash"
-gemini_image_model     = "gemini-2.5-flash-image"
+gemini_model           = "gemini-3-pro-preview"
+gemini_image_model     = "gemini-3-pro-image-preview"
 
 # Docker images - leave empty until you've built and pushed images
 # Example after pushing:

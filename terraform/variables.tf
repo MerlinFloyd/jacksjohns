@@ -27,13 +27,13 @@ variable "discord_application_id" {
 variable "gemini_model" {
   description = "Gemini model for chat"
   type        = string
-  default     = "gemini-2.5-flash"
+  default     = "gemini-3-pro-preview"
 }
 
 variable "gemini_image_model" {
   description = "Gemini model for image generation"
   type        = string
-  default     = "gemini-2.5-flash-image"
+  default     = "gemini-3-pro-image-preview"
 }
 
 variable "agent_service_image" {
