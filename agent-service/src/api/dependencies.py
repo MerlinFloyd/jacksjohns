@@ -1,7 +1,7 @@
 """FastAPI dependency injection setup."""
 
 import logging
-from typing import TYPE_CHECKING
+from typing import Any
 
 from ..config.settings import get_settings
 from ..domain.interfaces.persona_repository import PersonaRepository
@@ -11,9 +11,6 @@ from ..domain.interfaces.session_service import SessionService
 from ..infrastructure.repositories.in_memory_persona_repository import InMemoryPersonaRepository
 from ..infrastructure.genai.gemini_image_generator import GeminiImageGenerator
 
-if TYPE_CHECKING:
-    from ..infrastructure.repositories.channel_session_repository import ChannelSessionRepository
-
 logger = logging.getLogger(__name__)
 
 # Singleton instances
@@ -21,7 +18,7 @@ _persona_repository: PersonaRepository | None = None
 _image_generator: ImageGenerator | None = None
 _memory_service: MemoryService | None = None
 _session_service: SessionService | None = None
-_channel_session_repository: "ChannelSessionRepository | None" = None
+_channel_session_repository: Any = None
 _agent_engine_manager = None
 _agent_engine_initialized = False
 
@@ -148,7 +145,7 @@ def get_session_service() -> SessionService | None:
     return _session_service
 
 
-def get_channel_session_repository() -> "ChannelSessionRepository | None":
+def get_channel_session_repository() -> Any:
     """
     Get the channel session repository singleton.
     
