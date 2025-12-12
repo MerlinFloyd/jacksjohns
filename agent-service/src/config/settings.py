@@ -12,8 +12,8 @@ class Settings(BaseSettings):
     gcp_region: str = "us-central1"
 
     # Model Configuration
-    gemini_model: str = "gemini-2.5-flash"
-    gemini_image_model: str = "gemini-2.5-flash-image"
+    gemini_model: str = "gemini-3-pro-preview"
+    gemini_image_model: str = "gemini-3-pro-image-preview"
 
     # Service Configuration
     agent_service_host: str = "0.0.0.0"
