@@ -30,7 +30,7 @@ resource "google_cloud_run_v2_service" "agent_service" {
 
       env {
         name  = "GCP_REGION"
-        value = var.region
+        value = var.gemini_region
       }
 
       env {

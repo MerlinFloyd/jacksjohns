@@ -7,9 +7,15 @@ variable "project_id" {
 }
 
 variable "region" {
-  description = "Google Cloud Region"
+  description = "Google Cloud Region for Cloud Run services"
   type        = string
   default     = "us-central1"
+}
+
+variable "gemini_region" {
+  description = "Google Cloud Region for Gemini API calls (use 'global' for Gemini 3 models)"
+  type        = string
+  default     = "global"
 }
 
 variable "discord_bot_token" {
