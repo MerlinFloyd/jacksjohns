@@ -73,8 +73,8 @@ jobs:
           env_vars: |
             GCP_PROJECT_ID=${{ env.PROJECT_ID }}
             GCP_REGION=${{ env.REGION }}
-            GEMINI_MODEL=gemini-2.5-flash
-            GEMINI_IMAGE_MODEL=gemini-2.5-flash-image
+            GEMINI_MODEL=gemini-3-pro-preview
+            GEMINI_IMAGE_MODEL=gemini-3-pro-image-preview
             AGENT_ENGINE_ID=${{ vars.AGENT_ENGINE_ID }}
 
       - name: Deploy Discord Bot to Cloud Run
