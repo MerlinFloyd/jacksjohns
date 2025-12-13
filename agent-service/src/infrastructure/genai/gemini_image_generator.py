@@ -1,10 +1,17 @@
 """Gemini 2.5 Flash Image implementation of ImageGenerator."""
 
 import logging
-from io import BytesIO
 
 from google import genai
+from google.api_core.exceptions import ResourceExhausted
 from google.genai.types import GenerateContentConfig, Modality
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    before_sleep_log,
+    retry_if_exception,
+)
 
 from ...config.settings import get_settings
 from ...domain.interfaces.image_generator import (
@@ -16,11 +23,28 @@ from ...domain.interfaces.image_generator import (
 logger = logging.getLogger(__name__)
 
 
+def _is_rate_limit_error(exception: BaseException) -> bool:
+    """
+    Check if the exception is a rate limit (429 RESOURCE_EXHAUSTED) error.
+    
+    Returns True only for rate limit errors that should be retried.
+    Other errors (like invalid prompts, auth errors, etc.) will not be retried.
+    """
+    # Check for Google's ResourceExhausted exception
+    if isinstance(exception, ResourceExhausted):
+        return True
+    
+    # Also check for generic exceptions with rate limit indicators in the message
+    error_str = str(exception).lower()
+    return "429" in error_str or "resource_exhausted" in error_str
+
+
 class GeminiImageGenerator(ImageGenerator):
     """
     Image generator using Gemini 2.5 Flash Image model.
     
     Uses the google-genai SDK to generate images via Vertex AI.
+    Implements exponential backoff retry for rate limit errors (429 RESOURCE_EXHAUSTED).
     """
 
     def __init__(self) -> None:
@@ -34,7 +58,11 @@ class GeminiImageGenerator(ImageGenerator):
             location=settings.gcp_region,
         )
         self._model = settings.gemini_image_model
-        logger.info(f"Initialized GeminiImageGenerator with model: {self._model}")
+        self._max_retries = settings.image_generation_max_retries
+        logger.info(
+            f"Initialized GeminiImageGenerator with model: {self._model}, "
+            f"max_retries: {self._max_retries}"
+        )
 
     async def generate(
         self,
@@ -50,8 +78,40 @@ class GeminiImageGenerator(ImageGenerator):
             
         Returns:
             GeneratedImage with image data and metadata
+            
+        Note:
+            This method implements exponential backoff retry for rate limit
+            (429 RESOURCE_EXHAUSTED) errors. The number of retries is configurable
+            via the IMAGE_GENERATION_MAX_RETRIES environment variable (default: 3).
+            
+            Retry timing: 1s -> 2s -> 4s -> 8s (max), with jitter.
         """
         try:
+            return self._generate_with_retry(prompt, aspect_ratio)
+        except ImageGenerationError:
+            raise
+        except Exception as e:
+            logger.error(f"Image generation failed: {e}")
+            raise ImageGenerationError(f"Failed to generate image: {str(e)}", e)
+
+    def _generate_with_retry(self, prompt: str, aspect_ratio: str) -> GeneratedImage:
+        """
+        Execute the image generation API call with retry logic for rate limit errors.
+        
+        Uses exponential backoff: waits 1s after first failure, then 2s, 4s, up to 8s max.
+        Only retries on 429 RESOURCE_EXHAUSTED errors; other errors are raised immediately.
+        """
+        # Build the retry decorator with instance configuration
+        retry_decorator = retry(
+            retry=retry_if_exception(_is_rate_limit_error),
+            stop=stop_after_attempt(self._max_retries + 1),  # +1 because first attempt isn't a retry
+            wait=wait_exponential(multiplier=1, min=1, max=8),
+            before_sleep=before_sleep_log(logger, logging.WARNING),
+            reraise=True,
+        )
+        
+        @retry_decorator
+        def _call_api() -> GeneratedImage:
             logger.info(f"Generating image with prompt: {prompt[:100]}...")
             
             # Enhance prompt to ensure image generation
@@ -93,12 +153,8 @@ class GeminiImageGenerator(ImageGenerator):
                 prompt=prompt,
                 text_response=text_response,
             )
-            
-        except ImageGenerationError:
-            raise
-        except Exception as e:
-            logger.error(f"Image generation failed: {e}")
-            raise ImageGenerationError(f"Failed to generate image: {str(e)}", e)
+        
+        return _call_api()
 
     async def health_check(self) -> bool:
         """Check if the Gemini service is available."""

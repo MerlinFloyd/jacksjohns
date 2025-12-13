@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     use_agent_engine: bool = True  # Set to False to disable sessions/memory
     agent_engine_display_name: str = "jacksjohns-bot-engine"
 
+    # Retry Configuration
+    image_generation_max_retries: int = 3  # Max retries for image generation API calls
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

@@ -72,10 +72,11 @@ jobs:
             --port=8000
           env_vars: |
             GCP_PROJECT_ID=${{ env.PROJECT_ID }}
-            GCP_REGION=global
-            GEMINI_MODEL=gemini-3-pro-preview
-            GEMINI_IMAGE_MODEL=gemini-3-pro-image-preview
+            GCP_REGION=${{ vars.GEMINI_REGION || 'global' }}
+            GEMINI_MODEL=${{ vars.GEMINI_MODEL || 'gemini-3-pro-preview' }}
+            GEMINI_IMAGE_MODEL=${{ vars.GEMINI_IMAGE_MODEL || 'gemini-3-pro-image-preview' }}
             AGENT_ENGINE_ID=${{ vars.AGENT_ENGINE_ID }}
+            IMAGE_GENERATION_MAX_RETRIES=${{ vars.IMAGE_GENERATION_MAX_RETRIES || '3' }}
 
       - name: Deploy Discord Bot to Cloud Run
         id: deploy-bot
