@@ -17,21 +17,21 @@ router = APIRouter(prefix="/api/videos", tags=["videos"])
 class VideoGenerateRequest(BaseModel):
     """Request model for video generation."""
     prompt: str = Field(..., min_length=1, max_length=4000, description="Video generation prompt")
-    aspect_ratio: Literal["16:9", "9:16"] = Field(
-        default="16:9",
-        description="Aspect ratio (16:9 for landscape, 9:16 for portrait)"
+    aspect_ratio: Literal["16:9", "9:16"] | None = Field(
+        default=None,
+        description="Aspect ratio (16:9 for landscape, 9:16 for portrait). Defaults to 16:9 or persona settings."
     )
-    duration_seconds: Literal[4, 6, 8] = Field(
-        default=8,
-        description="Video duration in seconds (4, 6, or 8)"
+    duration_seconds: Literal[4, 6, 8] | None = Field(
+        default=None,
+        description="Video duration in seconds (4, 6, or 8). Defaults to 8 or persona settings."
     )
-    resolution: Literal["720p", "1080p"] = Field(
-        default="720p",
-        description="Video resolution (720p or 1080p)"
+    resolution: Literal["720p", "1080p"] | None = Field(
+        default=None,
+        description="Video resolution (720p or 1080p). Defaults to 720p or persona settings."
     )
-    generate_audio: bool = Field(
-        default=True,
-        description="Whether to generate audio with the video"
+    generate_audio: bool | None = Field(
+        default=None,
+        description="Whether to generate audio with the video. Defaults to true or persona settings."
     )
     persona_name: str | None = Field(
         None,
@@ -88,22 +88,19 @@ async def generate_video(
         except Exception as e:
             logger.warning(f"Failed to get generation settings: {e}")
     
-    # Use request values or fall back to settings defaults
-    aspect_ratio = request.aspect_ratio
-    duration_seconds = request.duration_seconds
-    resolution = request.resolution
-    generate_audio = request.generate_audio
-    
-    # Override from settings if request used defaults
+    # Use request values, then persona settings, then hardcoded defaults
+    # Priority: explicit request value > persona settings > default
     if video_settings:
-        if request.aspect_ratio == "16:9" and video_settings.aspect_ratio != "16:9":
-            aspect_ratio = video_settings.aspect_ratio
-        if request.duration_seconds == 8 and video_settings.duration_seconds != 8:
-            duration_seconds = video_settings.duration_seconds
-        if request.resolution == "720p" and video_settings.resolution != "720p":
-            resolution = video_settings.resolution
-        # Use settings for audio if not explicitly set
-        generate_audio = video_settings.generate_audio if request.generate_audio else request.generate_audio
+        aspect_ratio = request.aspect_ratio if request.aspect_ratio is not None else video_settings.aspect_ratio
+        duration_seconds = request.duration_seconds if request.duration_seconds is not None else video_settings.duration_seconds
+        resolution = request.resolution if request.resolution is not None else video_settings.resolution
+        generate_audio = request.generate_audio if request.generate_audio is not None else video_settings.generate_audio
+    else:
+        # Fall back to hardcoded defaults if no settings
+        aspect_ratio = request.aspect_ratio if request.aspect_ratio is not None else "16:9"
+        duration_seconds = request.duration_seconds if request.duration_seconds is not None else 8
+        resolution = request.resolution if request.resolution is not None else "720p"
+        generate_audio = request.generate_audio if request.generate_audio is not None else True
     
     # Validate parameters
     if aspect_ratio not in VALID_ASPECT_RATIOS:
