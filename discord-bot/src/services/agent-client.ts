@@ -19,6 +19,9 @@ import type {
   ErrorInterpretRequest,
   ErrorInterpretResponse,
   GenerateChannelMemoriesResponse,
+  GenerationSettingsResponse,
+  UpdateSettingsRequest,
+  AvailableSettings,
 } from "../types/api";
 
 class AgentClient {
@@ -247,6 +250,63 @@ class AgentClient {
       logger.warn("Failed to interpret error:", error);
       return `Something went wrong: ${errorMessage}`;
     }
+  }
+
+  // Settings operations
+  async listSettings(): Promise<{ settings: GenerationSettingsResponse[] }> {
+    return this.request<{ settings: GenerationSettingsResponse[] }>("GET", "/api/settings");
+  }
+
+  async getAvailableSettings(): Promise<AvailableSettings> {
+    return this.request<AvailableSettings>("GET", "/api/settings/available");
+  }
+
+  async getSettings(name: string): Promise<GenerationSettingsResponse> {
+    return this.request<GenerationSettingsResponse>(
+      "GET",
+      `/api/settings/${encodeURIComponent(name)}`
+    );
+  }
+
+  async updateSettings(
+    name: string,
+    updates: UpdateSettingsRequest
+  ): Promise<GenerationSettingsResponse> {
+    logger.info(`Updating settings for: ${name}`);
+    return this.request<GenerationSettingsResponse>(
+      "PUT",
+      `/api/settings/${encodeURIComponent(name)}`,
+      updates
+    );
+  }
+
+  async setSingleSetting(
+    name: string,
+    category: "chat" | "image",
+    settingName: string,
+    value: unknown
+  ): Promise<{ name: string; category: string; setting: string; value: unknown; description: string }> {
+    logger.info(`Setting ${category}.${settingName} for ${name} to ${value}`);
+    return this.request<{ name: string; category: string; setting: string; value: unknown; description: string }>(
+      "PATCH",
+      `/api/settings/${encodeURIComponent(name)}/${category}/${encodeURIComponent(settingName)}?value=${encodeURIComponent(String(value))}`
+    );
+  }
+
+  async deleteSettings(name: string): Promise<{ status: string; name: string }> {
+    logger.info(`Deleting settings for: ${name}`);
+    return this.request<{ status: string; name: string }>(
+      "DELETE",
+      `/api/settings/${encodeURIComponent(name)}`
+    );
+  }
+
+  async resetSettings(name: string): Promise<GenerationSettingsResponse> {
+    logger.info(`Resetting settings for: ${name}`);
+    return this.request<GenerationSettingsResponse>(
+      "POST",
+      `/api/settings/${encodeURIComponent(name)}/reset`
+    );
   }
 }
 

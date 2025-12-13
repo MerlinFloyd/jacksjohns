@@ -28,6 +28,12 @@ import { handleImagine } from "./imagine";
 import { handleMemories } from "./memories";
 import { handleRemember } from "./remember";
 import { handleForget } from "./forget";
+import {
+  handleSettingsList,
+  handleSettingsAvailable,
+  handleSettingsSet,
+  handleSettingsReset,
+} from "./settings";
 
 // Command location restrictions
 const ADMIN_CHANNEL_COMMANDS = [
@@ -35,6 +41,10 @@ const ADMIN_CHANNEL_COMMANDS = [
   "persona delete",
   "persona list",
   "persona rename",
+  "settings list",
+  "settings available",
+  "settings set",
+  "settings reset",
 ];
 
 const PERSONA_CHANNEL_COMMANDS = [
@@ -224,6 +234,76 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
         .setRequired(false)
     )
     .toJSON(),
+
+  // Settings command - manage AI generation settings
+  new SlashCommandBuilder()
+    .setName("settings")
+    .setDescription("Manage AI generation settings")
+    // LIST - view settings
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("list")
+        .setDescription("List settings for a persona or all configured settings")
+        .addStringOption((option) =>
+          option
+            .setName("name")
+            .setDescription("Persona name (or 'default' for global defaults)")
+            .setRequired(false)
+        )
+    )
+    // AVAILABLE - show all available settings
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("available")
+        .setDescription("Show all available settings and their valid values")
+    )
+    // SET - set a specific setting
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("set")
+        .setDescription("Set a specific setting value")
+        .addStringOption((option) =>
+          option
+            .setName("name")
+            .setDescription("Persona name (or 'default' for global defaults)")
+            .setRequired(true)
+        )
+        .addStringOption((option) =>
+          option
+            .setName("category")
+            .setDescription("Setting category")
+            .setRequired(true)
+            .addChoices(
+              { name: "chat", value: "chat" },
+              { name: "image", value: "image" }
+            )
+        )
+        .addStringOption((option) =>
+          option
+            .setName("setting")
+            .setDescription("Setting name (e.g., temperature, aspect_ratio)")
+            .setRequired(true)
+        )
+        .addStringOption((option) =>
+          option
+            .setName("value")
+            .setDescription("New value for the setting")
+            .setRequired(true)
+        )
+    )
+    // RESET - reset to defaults
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("reset")
+        .setDescription("Reset settings to defaults for a persona")
+        .addStringOption((option) =>
+          option
+            .setName("name")
+            .setDescription("Persona name (or 'default' for global defaults)")
+            .setRequired(true)
+        )
+    )
+    .toJSON(),
 ];
 
 /**
@@ -306,6 +386,9 @@ export async function handleCommand(
       case "forget":
         await handleForget(interaction);
         break;
+      case "settings":
+        await handleSettingsCommand(interaction);
+        break;
       default:
         await interaction.reply({
           content: `Unknown command: ${commandName}`,
@@ -382,6 +465,35 @@ async function handlePersonaCommand(
       await handlePersonaEdit(interaction, persona);
       // Invalidate cache after editing
       invalidatePersonaCache(persona.channel_id || undefined);
+      break;
+    default:
+      await interaction.reply({
+        content: `Unknown subcommand: ${subcommand}`,
+        ephemeral: true,
+      });
+  }
+}
+
+/**
+ * Handle settings subcommands.
+ */
+async function handleSettingsCommand(
+  interaction: ChatInputCommandInteraction
+): Promise<void> {
+  const subcommand = interaction.options.getSubcommand();
+
+  switch (subcommand) {
+    case "list":
+      await handleSettingsList(interaction);
+      break;
+    case "available":
+      await handleSettingsAvailable(interaction);
+      break;
+    case "set":
+      await handleSettingsSet(interaction);
+      break;
+    case "reset":
+      await handleSettingsReset(interaction);
       break;
     default:
       await interaction.reply({

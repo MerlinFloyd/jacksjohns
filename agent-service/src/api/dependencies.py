@@ -8,6 +8,7 @@ from ..domain.interfaces.persona_repository import PersonaRepository
 from ..domain.interfaces.image_generator import ImageGenerator
 from ..domain.interfaces.memory_service import MemoryService
 from ..domain.interfaces.session_service import SessionService
+from ..domain.interfaces.settings_repository import SettingsRepository
 from ..infrastructure.repositories.in_memory_persona_repository import InMemoryPersonaRepository
 from ..infrastructure.genai.gemini_image_generator import GeminiImageGenerator
 
@@ -18,6 +19,7 @@ _persona_repository: PersonaRepository | None = None
 _image_generator: ImageGenerator | None = None
 _memory_service: MemoryService | None = None
 _session_service: SessionService | None = None
+_settings_repository: SettingsRepository | None = None
 _channel_session_repository: Any = None
 _agent_engine_manager = None
 _agent_engine_initialized = False
@@ -174,6 +176,35 @@ def get_channel_session_repository() -> Any:
     return _channel_session_repository
 
 
+def get_settings_repository() -> SettingsRepository | None:
+    """
+    Get the settings repository singleton.
+    
+    Returns:
+        SettingsRepository implementation or None if Firestore is disabled
+    """
+    global _settings_repository
+    
+    if _settings_repository is None:
+        settings = get_settings()
+        
+        if settings.use_firestore:
+            try:
+                from ..infrastructure.repositories.firestore_settings_repository import (
+                    FirestoreSettingsRepository,
+                )
+                _settings_repository = FirestoreSettingsRepository()
+                logger.info("FirestoreSettingsRepository initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize FirestoreSettingsRepository: {e}")
+                return None
+        else:
+            logger.info("SettingsRepository disabled (Firestore disabled)")
+            return None
+    
+    return _settings_repository
+
+
 async def initialize_services() -> None:
     """
     Initialize all services.
@@ -188,10 +219,12 @@ def reset_dependencies() -> None:
     """Reset all dependencies (useful for testing)."""
     global _persona_repository, _image_generator, _memory_service, _session_service
     global _agent_engine_manager, _agent_engine_initialized, _channel_session_repository
+    global _settings_repository
     _persona_repository = None
     _image_generator = None
     _memory_service = None
     _session_service = None
     _channel_session_repository = None
+    _settings_repository = None
     _agent_engine_manager = None
     _agent_engine_initialized = False

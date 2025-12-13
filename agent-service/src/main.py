@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config.settings import get_settings
-from .api.routes import health_router, persona_router, image_router, chat_router
+from .api.routes import health_router, persona_router, image_router, chat_router, settings_router
 from .api.dependencies import initialize_services
 
 # Configure logging
@@ -41,6 +41,7 @@ app.include_router(health_router)
 app.include_router(persona_router)
 app.include_router(image_router)
 app.include_router(chat_router)
+app.include_router(settings_router)
 
 
 @app.on_event("startup")

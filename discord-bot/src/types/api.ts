@@ -106,3 +106,70 @@ export interface ErrorInterpretRequest {
 export interface ErrorInterpretResponse {
   interpretation: string;
 }
+
+// Settings API types
+export interface SafetySettingModel {
+  category: string;
+  threshold: string;
+}
+
+export interface ChatSettingsModel {
+  temperature: number;
+  top_p: number;
+  top_k: number;
+  max_output_tokens: number;
+  presence_penalty: number;
+  frequency_penalty: number;
+  stop_sequences: string[];
+  safety_settings: SafetySettingModel[];
+}
+
+export interface ImageSettingsModel {
+  aspect_ratio: string;
+  output_mime_type: string;
+  negative_prompt: string | null;
+  number_of_images: number;
+  person_generation: boolean;
+  safety_settings: SafetySettingModel[];
+}
+
+export interface GenerationSettingsResponse {
+  name: string;
+  chat: ChatSettingsModel;
+  image: ImageSettingsModel;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpdateChatSettings {
+  temperature?: number;
+  top_p?: number;
+  top_k?: number;
+  max_output_tokens?: number;
+  presence_penalty?: number;
+  frequency_penalty?: number;
+  stop_sequences?: string[];
+  safety_settings?: SafetySettingModel[];
+}
+
+export interface UpdateImageSettings {
+  aspect_ratio?: string;
+  output_mime_type?: string;
+  negative_prompt?: string | null;
+  number_of_images?: number;
+  person_generation?: boolean;
+  safety_settings?: SafetySettingModel[];
+}
+
+export interface UpdateSettingsRequest {
+  chat?: UpdateChatSettings;
+  image?: UpdateImageSettings;
+}
+
+export interface AvailableSettings {
+  chat: Record<string, { description: string; type: Record<string, unknown> }>;
+  image: Record<string, { description: string; type: Record<string, unknown> }>;
+  valid_aspect_ratios: string[];
+  valid_harm_categories: string[];
+  valid_harm_thresholds: string[];
+}

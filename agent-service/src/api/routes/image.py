@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from ..dependencies import get_image_generator, get_persona_repository
+from ..dependencies import get_image_generator, get_persona_repository, get_settings_repository
 from ...domain.interfaces.image_generator import ImageGenerator, ImageGenerationError
 from ...domain.interfaces.persona_repository import PersonaRepository
 
@@ -45,6 +45,7 @@ async def generate_image_json(
     request: ImageGenerateRequest,
     generator: ImageGenerator = Depends(get_image_generator),
     persona_repo: PersonaRepository = Depends(get_persona_repository),
+    settings_repo=Depends(get_settings_repository),
 ) -> ImageGenerateResponse:
     """
     Generate an image from a text prompt.
@@ -54,14 +55,31 @@ async def generate_image_json(
     If persona_name is provided and the persona has an appearance defined,
     the appearance will be prepended to the prompt for better character consistency.
     
+    Uses persona-specific or default generation settings for aspect ratio and other parameters.
+    
     Args:
         request: Image generation request
         
     Returns:
         Generated image as base64 with metadata
     """
+    # Get generation settings if available
+    image_settings = None
+    if settings_repo and request.persona_name:
+        try:
+            gen_settings = await settings_repo.get_or_default(request.persona_name)
+            image_settings = gen_settings.image
+        except Exception as e:
+            logger.warning(f"Failed to get generation settings: {e}")
+    
+    # Use request aspect_ratio or settings default
+    aspect_ratio = request.aspect_ratio
+    if aspect_ratio == "1:1" and image_settings and image_settings.aspect_ratio != "1:1":
+        # Only use settings default if request used default value
+        aspect_ratio = image_settings.aspect_ratio
+    
     # Validate aspect ratio
-    if request.aspect_ratio not in VALID_ASPECT_RATIOS:
+    if aspect_ratio not in VALID_ASPECT_RATIOS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid aspect ratio. Must be one of: {', '.join(VALID_ASPECT_RATIOS)}"
@@ -75,11 +93,15 @@ async def generate_image_json(
             final_prompt = f"{persona.appearance}, {request.prompt}"
             logger.info(f"Including persona appearance in prompt: {persona.appearance[:50]}...")
     
+    # Add negative prompt from settings if available
+    if image_settings and image_settings.negative_prompt:
+        final_prompt = f"{final_prompt}. Avoid: {image_settings.negative_prompt}"
+    
     try:
         logger.info(f"Generating image for prompt: {final_prompt[:50]}...")
         result = await generator.generate(
             prompt=final_prompt,
-            aspect_ratio=request.aspect_ratio,
+            aspect_ratio=aspect_ratio,
         )
         
         # Encode image to base64
@@ -107,6 +129,7 @@ async def generate_image_raw(
     request: ImageGenerateRequest,
     generator: ImageGenerator = Depends(get_image_generator),
     persona_repo: PersonaRepository = Depends(get_persona_repository),
+    settings_repo=Depends(get_settings_repository),
 ) -> Response:
     """
     Generate an image from a text prompt.
@@ -116,14 +139,31 @@ async def generate_image_raw(
     If persona_name is provided and the persona has an appearance defined,
     the appearance will be prepended to the prompt for better character consistency.
     
+    Uses persona-specific or default generation settings for aspect ratio and other parameters.
+    
     Args:
         request: Image generation request
         
     Returns:
         Raw image bytes
     """
+    # Get generation settings if available
+    image_settings = None
+    if settings_repo and request.persona_name:
+        try:
+            gen_settings = await settings_repo.get_or_default(request.persona_name)
+            image_settings = gen_settings.image
+        except Exception as e:
+            logger.warning(f"Failed to get generation settings: {e}")
+    
+    # Use request aspect_ratio or settings default
+    aspect_ratio = request.aspect_ratio
+    if aspect_ratio == "1:1" and image_settings and image_settings.aspect_ratio != "1:1":
+        # Only use settings default if request used default value
+        aspect_ratio = image_settings.aspect_ratio
+    
     # Validate aspect ratio
-    if request.aspect_ratio not in VALID_ASPECT_RATIOS:
+    if aspect_ratio not in VALID_ASPECT_RATIOS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid aspect ratio. Must be one of: {', '.join(VALID_ASPECT_RATIOS)}"
@@ -137,11 +177,15 @@ async def generate_image_raw(
             final_prompt = f"{persona.appearance}, {request.prompt}"
             logger.info(f"Including persona appearance in prompt: {persona.appearance[:50]}...")
     
+    # Add negative prompt from settings if available
+    if image_settings and image_settings.negative_prompt:
+        final_prompt = f"{final_prompt}. Avoid: {image_settings.negative_prompt}"
+    
     try:
         logger.info(f"Generating raw image for prompt: {final_prompt[:50]}...")
         result = await generator.generate(
             prompt=final_prompt,
-            aspect_ratio=request.aspect_ratio,
+            aspect_ratio=aspect_ratio,
         )
         
         logger.info(f"Raw image generated successfully ({len(result.data)} bytes)")

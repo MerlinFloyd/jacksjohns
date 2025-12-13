@@ -16,8 +16,10 @@ from ..dependencies import (
     get_session_service,
     get_memory_service,
     get_channel_session_repository,
+    get_settings_repository,
 )
 from ...config.settings import get_settings
+from ...domain.entities.generation_settings import GenerationSettings, SafetySetting
 from ...domain.interfaces import (
     PersonaRepository,
     SessionService,
@@ -183,6 +185,7 @@ async def _generate_response(
     system_prompt: str,
     conversation_history: list[dict[str, str]],
     enable_memory_tool: bool = True,
+    generation_settings: GenerationSettings | None = None,
 ) -> GenerateResponseResult:
     """Generate AI response using Gemini with optional memory tool.
     
@@ -191,6 +194,7 @@ async def _generate_response(
         system_prompt: System prompt for the persona
         conversation_history: Previous messages in the conversation
         enable_memory_tool: Whether to enable the save_memory tool
+        generation_settings: Optional generation settings (uses defaults if None)
         
     Returns:
         GenerateResponseResult with response text and any memories to save
@@ -254,13 +258,37 @@ async def _generate_response(
         ]
     )
     
-    # Build config with optional tool
+    # Build config with optional tool and settings
+    # Use provided generation settings or defaults
+    chat_settings = generation_settings.chat if generation_settings else None
+    
     config = genai_types.GenerateContentConfig(
         system_instruction=system_prompt,
-        temperature=0.9,
-        top_p=0.95,
-        max_output_tokens=1024,
+        temperature=chat_settings.temperature if chat_settings else 0.9,
+        top_p=chat_settings.top_p if chat_settings else 0.95,
+        max_output_tokens=chat_settings.max_output_tokens if chat_settings else 1024,
     )
+    
+    # Add optional settings if available
+    if chat_settings:
+        if chat_settings.top_k > 0:
+            config.top_k = chat_settings.top_k
+        if chat_settings.presence_penalty != 0.0:
+            config.presence_penalty = chat_settings.presence_penalty
+        if chat_settings.frequency_penalty != 0.0:
+            config.frequency_penalty = chat_settings.frequency_penalty
+        if chat_settings.stop_sequences:
+            config.stop_sequences = chat_settings.stop_sequences
+        
+        # Add safety settings
+        if chat_settings.safety_settings:
+            config.safety_settings = [
+                genai_types.SafetySetting(
+                    category=s.category,
+                    threshold=s.threshold,
+                )
+                for s in chat_settings.safety_settings
+            ]
     
     if enable_memory_tool:
         config.tools = [save_memory_tool]
@@ -364,6 +392,7 @@ async def chat(
     session_service: SessionService = Depends(get_session_service),
     memory_service: MemoryService = Depends(get_memory_service),
     channel_session_repo=Depends(get_channel_session_repository),
+    settings_repo=Depends(get_settings_repository),
 ) -> ChatResponse:
     """
     Chat with a persona.
@@ -372,7 +401,7 @@ async def chat(
     1. Retrieves the persona's personality
     2. Gets or creates a session for conversation history
     3. Retrieves relevant memories for personalization
-    4. Generates an AI response
+    4. Generates an AI response using persona-specific settings
     5. Stores the interaction in the session
     
     For channel chat mode (is_channel_chat=True):
@@ -474,6 +503,14 @@ async def chat(
         system_prompt = _build_system_prompt(persona.personality, memories)
         formatted_message = data.message
     
+    # Get generation settings for this persona
+    generation_settings = None
+    if settings_repo:
+        try:
+            generation_settings = await settings_repo.get_or_default(data.persona_name)
+        except Exception as e:
+            logger.warning(f"Failed to get generation settings: {e}")
+    
     # Generate response (with memory tool enabled)
     try:
         response_result = await _generate_response(
@@ -481,6 +518,7 @@ async def chat(
             system_prompt=system_prompt,
             conversation_history=conversation_history,
             enable_memory_tool=True,
+            generation_settings=generation_settings,
         )
         ai_response = response_result.text
         memories_to_save = response_result.memories_to_save
