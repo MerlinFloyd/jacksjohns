@@ -38,6 +38,7 @@ function formatSettings(settings: GenerationSettingsResponse): string {
   lines.push(`  aspect_ratio: ${settings.image.aspect_ratio}`);
   lines.push(`  output_mime_type: ${settings.image.output_mime_type}`);
   lines.push(`  number_of_images: ${settings.image.number_of_images}`);
+  lines.push(`  temperature: ${settings.image.temperature}`);
   lines.push(`  person_generation: ${settings.image.person_generation}`);
   if (settings.image.negative_prompt) {
     lines.push(`  negative_prompt: ${settings.image.negative_prompt}`);
