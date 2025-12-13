@@ -45,6 +45,22 @@ function formatSettings(settings: GenerationSettingsResponse): string {
   }
   
   lines.push("");
+  
+  // Video settings
+  lines.push("**Video Settings:**");
+  lines.push(`  aspect_ratio: ${settings.video.aspect_ratio}`);
+  lines.push(`  duration_seconds: ${settings.video.duration_seconds}s`);
+  lines.push(`  resolution: ${settings.video.resolution}`);
+  lines.push(`  generate_audio: ${settings.video.generate_audio}`);
+  lines.push(`  person_generation: ${settings.video.person_generation}`);
+  if (settings.video.negative_prompt) {
+    lines.push(`  negative_prompt: ${settings.video.negative_prompt}`);
+  }
+  if (settings.video.seed !== null) {
+    lines.push(`  seed: ${settings.video.seed}`);
+  }
+  
+  lines.push("");
   lines.push(`_Last updated: ${new Date(settings.updated_at).toLocaleString()}_`);
   
   return lines.join("\n");
@@ -80,7 +96,22 @@ function formatAvailableSettings(available: AvailableSettings): string {
   }
   
   lines.push("");
-  lines.push(`**Valid aspect ratios:** ${available.valid_aspect_ratios.join(", ")}`);
+  
+  lines.push("**Video Settings:**");
+  for (const [name, info] of Object.entries(available.video)) {
+    const typeInfo = info.type as Record<string, unknown>;
+    let typeStr = String(typeInfo.type || "unknown");
+    if (typeInfo.min !== undefined && typeInfo.max !== undefined) {
+      typeStr += ` (${typeInfo.min}-${typeInfo.max})`;
+    }
+    lines.push(`  \`${name}\` (${typeStr}): ${info.description}`);
+  }
+  
+  lines.push("");
+  lines.push(`**Valid image aspect ratios:** ${available.valid_image_aspect_ratios.join(", ")}`);
+  lines.push(`**Valid video aspect ratios:** ${available.valid_video_aspect_ratios.join(", ")}`);
+  lines.push(`**Valid video durations:** ${available.valid_video_durations.join(", ")}s`);
+  lines.push(`**Valid video resolutions:** ${available.valid_video_resolutions.join(", ")}`);
   lines.push("");
   lines.push(`**Valid harm thresholds:** ${available.valid_harm_thresholds.join(", ")}`);
   
@@ -168,7 +199,7 @@ export async function handleSettingsSet(
   interaction: ChatInputCommandInteraction
 ): Promise<void> {
   const name = interaction.options.getString("name", true);
-  const category = interaction.options.getString("category", true) as "chat" | "image";
+  const category = interaction.options.getString("category", true) as "chat" | "image" | "video";
   const setting = interaction.options.getString("setting", true);
   const valueStr = interaction.options.getString("value", true);
   
@@ -199,11 +230,13 @@ export async function handleSettingsSet(
     }
     
     // Build update request
-    const updates: { chat?: Record<string, unknown>; image?: Record<string, unknown> } = {};
+    const updates: { chat?: Record<string, unknown>; image?: Record<string, unknown>; video?: Record<string, unknown> } = {};
     if (category === "chat") {
       updates.chat = { [setting]: value };
-    } else {
+    } else if (category === "image") {
       updates.image = { [setting]: value };
+    } else {
+      updates.video = { [setting]: value };
     }
     
     const result = await agentClient.updateSettings(name, updates);
@@ -211,9 +244,15 @@ export async function handleSettingsSet(
     // Show the updated value
     const chatObj = result.chat as unknown as Record<string, unknown>;
     const imageObj = result.image as unknown as Record<string, unknown>;
-    const updatedValue = category === "chat" 
-      ? chatObj[setting]
-      : imageObj[setting];
+    const videoObj = result.video as unknown as Record<string, unknown>;
+    let updatedValue: unknown;
+    if (category === "chat") {
+      updatedValue = chatObj[setting];
+    } else if (category === "image") {
+      updatedValue = imageObj[setting];
+    } else {
+      updatedValue = videoObj[setting];
+    }
     
     await interaction.editReply(
       `Updated **${name}** setting:\n` +

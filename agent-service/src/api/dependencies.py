@@ -6,17 +6,20 @@ from typing import Any
 from ..config.settings import get_settings
 from ..domain.interfaces.persona_repository import PersonaRepository
 from ..domain.interfaces.image_generator import ImageGenerator
+from ..domain.interfaces.video_generator import VideoGenerator
 from ..domain.interfaces.memory_service import MemoryService
 from ..domain.interfaces.session_service import SessionService
 from ..domain.interfaces.settings_repository import SettingsRepository
 from ..infrastructure.repositories.in_memory_persona_repository import InMemoryPersonaRepository
 from ..infrastructure.genai.gemini_image_generator import GeminiImageGenerator
+from ..infrastructure.genai.veo_video_generator import VeoVideoGenerator
 
 logger = logging.getLogger(__name__)
 
 # Singleton instances
 _persona_repository: PersonaRepository | None = None
 _image_generator: ImageGenerator | None = None
+_video_generator: VideoGenerator | None = None
 _memory_service: MemoryService | None = None
 _session_service: SessionService | None = None
 _settings_repository: SettingsRepository | None = None
@@ -75,6 +78,19 @@ def get_image_generator() -> ImageGenerator:
     if _image_generator is None:
         _image_generator = GeminiImageGenerator()
     return _image_generator
+
+
+def get_video_generator() -> VideoGenerator:
+    """
+    Get the video generator singleton.
+    
+    Returns:
+        VideoGenerator implementation (Veo 3.1)
+    """
+    global _video_generator
+    if _video_generator is None:
+        _video_generator = VeoVideoGenerator()
+    return _video_generator
 
 
 async def _initialize_agent_engine() -> None:
@@ -217,11 +233,12 @@ async def initialize_services() -> None:
 
 def reset_dependencies() -> None:
     """Reset all dependencies (useful for testing)."""
-    global _persona_repository, _image_generator, _memory_service, _session_service
+    global _persona_repository, _image_generator, _video_generator, _memory_service, _session_service
     global _agent_engine_manager, _agent_engine_initialized, _channel_session_repository
     global _settings_repository
     _persona_repository = None
     _image_generator = None
+    _video_generator = None
     _memory_service = None
     _session_service = None
     _channel_session_repository = None

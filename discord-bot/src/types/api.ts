@@ -142,10 +142,21 @@ export interface ImageSettingsModel {
   safety_settings: SafetySettingModel[];
 }
 
+export interface VideoSettingsModel {
+  aspect_ratio: "16:9" | "9:16";
+  duration_seconds: 4 | 6 | 8;
+  resolution: "720p" | "1080p";
+  generate_audio: boolean;
+  negative_prompt: string | null;
+  person_generation: "allow_adult" | "dont_allow";
+  seed: number | null;
+}
+
 export interface GenerationSettingsResponse {
   name: string;
   chat: ChatSettingsModel;
   image: ImageSettingsModel;
+  video: VideoSettingsModel;
   created_at: string;
   updated_at: string;
 }
@@ -171,15 +182,51 @@ export interface UpdateImageSettings {
   safety_settings?: SafetySettingModel[];
 }
 
+export interface UpdateVideoSettings {
+  aspect_ratio?: "16:9" | "9:16";
+  duration_seconds?: 4 | 6 | 8;
+  resolution?: "720p" | "1080p";
+  generate_audio?: boolean;
+  negative_prompt?: string | null;
+  person_generation?: "allow_adult" | "dont_allow";
+  seed?: number | null;
+}
+
 export interface UpdateSettingsRequest {
   chat?: UpdateChatSettings;
   image?: UpdateImageSettings;
+  video?: UpdateVideoSettings;
 }
 
 export interface AvailableSettings {
   chat: Record<string, { description: string; type: Record<string, unknown> }>;
   image: Record<string, { description: string; type: Record<string, unknown> }>;
-  valid_aspect_ratios: string[];
+  video: Record<string, { description: string; type: Record<string, unknown> }>;
+  valid_image_aspect_ratios: string[];
+  valid_video_aspect_ratios: string[];
+  valid_video_durations: number[];
+  valid_video_resolutions: string[];
   valid_harm_categories: string[];
   valid_harm_thresholds: string[];
+}
+
+// Video generation types
+export interface VideoGenerateRequest {
+  prompt: string;
+  aspect_ratio?: "16:9" | "9:16";
+  duration_seconds?: 4 | 6 | 8;
+  resolution?: "720p" | "1080p";
+  generate_audio?: boolean;
+  persona_name?: string;
+}
+
+export interface VideoGenerateResponse {
+  video_url: string;
+  gcs_uri: string;
+  mime_type: string;
+  duration_seconds: number;
+  resolution: string;
+  aspect_ratio: string;
+  prompt: string;
+  has_audio: boolean;
 }

@@ -28,6 +28,7 @@ import { handleImagine } from "./imagine";
 import { handleMemories } from "./memories";
 import { handleRemember } from "./remember";
 import { handleForget } from "./forget";
+import { handleDream } from "./dream";
 import {
   handleSettingsList,
   handleSettingsAvailable,
@@ -50,6 +51,7 @@ const ADMIN_CHANNEL_COMMANDS = [
 const PERSONA_CHANNEL_COMMANDS = [
   "persona edit",
   "imagine",
+  "dream",
   "remember",
 ];
 
@@ -179,6 +181,56 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
     )
     .toJSON(),
 
+  // Video generation command - persona channel only
+  new SlashCommandBuilder()
+    .setName("dream")
+    .setDescription("Generate a video (persona channels only - uses persona appearance & personality)")
+    .addStringOption((option) =>
+      option
+        .setName("prompt")
+        .setDescription("Description of the video to generate")
+        .setRequired(true)
+        .setMaxLength(4000)
+    )
+    .addStringOption((option) =>
+      option
+        .setName("aspect_ratio")
+        .setDescription("Aspect ratio of the video")
+        .setRequired(false)
+        .addChoices(
+          { name: "16:9 (Landscape)", value: "16:9" },
+          { name: "9:16 (Portrait)", value: "9:16" }
+        )
+    )
+    .addIntegerOption((option) =>
+      option
+        .setName("duration")
+        .setDescription("Video duration in seconds")
+        .setRequired(false)
+        .addChoices(
+          { name: "4 seconds", value: 4 },
+          { name: "6 seconds", value: 6 },
+          { name: "8 seconds", value: 8 }
+        )
+    )
+    .addStringOption((option) =>
+      option
+        .setName("resolution")
+        .setDescription("Video resolution")
+        .setRequired(false)
+        .addChoices(
+          { name: "720p", value: "720p" },
+          { name: "1080p", value: "1080p" }
+        )
+    )
+    .addBooleanOption((option) =>
+      option
+        .setName("audio")
+        .setDescription("Generate audio for the video (default: enabled)")
+        .setRequired(false)
+    )
+    .toJSON(),
+
   // Memories command - view memories (simplified from /chat memories)
   new SlashCommandBuilder()
     .setName("memories")
@@ -275,7 +327,8 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
             .setRequired(true)
             .addChoices(
               { name: "chat", value: "chat" },
-              { name: "image", value: "image" }
+              { name: "image", value: "image" },
+              { name: "video", value: "video" }
             )
         )
         .addStringOption((option) =>
@@ -376,6 +429,10 @@ export async function handleCommand(
         break;
       case "imagine":
         await handleImagine(interaction, validation.persona);
+        break;
+      case "dream":
+        // Dream requires a persona (enforced by PERSONA_CHANNEL_COMMANDS check)
+        await handleDream(interaction, validation.persona!);
         break;
       case "memories":
         await handleMemories(interaction);

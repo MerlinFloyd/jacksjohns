@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     # Model Configuration
     gemini_model: str = "gemini-3-pro-preview"
     gemini_image_model: str = "gemini-3-pro-image-preview"
+    veo_video_model: str = "veo-3.1-fast-generate-001"
 
     # Service Configuration
     agent_service_host: str = "0.0.0.0"
@@ -34,6 +35,11 @@ class Settings(BaseSettings):
 
     # Retry Configuration
     image_generation_max_retries: int = 3  # Max retries for image generation API calls
+    video_generation_max_retries: int = 3  # Max retries for video generation API calls
+    video_generation_poll_interval: int = 15  # Seconds between polling for video generation status
+
+    # GCS Configuration for video output
+    video_output_bucket: str = "jacks-johns-video-output"
 
     class Config:
         env_file = ".env"

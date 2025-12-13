@@ -11,6 +11,7 @@ from ...domain.entities.generation_settings import (
     GenerationSettings,
     ChatSettings,
     ImageSettings,
+    VideoSettings,
     SafetySetting,
     HarmCategory,
     HarmBlockThreshold,
@@ -51,11 +52,23 @@ class ImageSettingsModel(BaseModel):
     safety_settings: list[SafetySettingModel] | None = Field(None, description="Safety settings")
 
 
+class VideoSettingsModel(BaseModel):
+    """Video settings model for API."""
+    aspect_ratio: Literal["16:9", "9:16"] = Field("16:9", description="Aspect ratio (16:9 or 9:16)")
+    duration_seconds: Literal[4, 6, 8] = Field(8, description="Video duration in seconds (4, 6, or 8)")
+    resolution: Literal["720p", "1080p"] = Field("720p", description="Video resolution (720p or 1080p)")
+    generate_audio: bool = Field(True, description="Whether to generate audio with the video")
+    negative_prompt: str | None = Field(None, description="What to exclude from videos")
+    person_generation: Literal["allow_adult", "dont_allow"] = Field("allow_adult", description="Person generation policy")
+    seed: int | None = Field(None, description="Seed for reproducible generation")
+
+
 class GenerationSettingsResponse(BaseModel):
     """Full generation settings response."""
     name: str
     chat: ChatSettingsModel
     image: ImageSettingsModel
+    video: VideoSettingsModel
     created_at: str
     updated_at: str
 
@@ -83,16 +96,28 @@ class UpdateImageSettingsRequest(BaseModel):
     safety_settings: list[SafetySettingModel] | None = None
 
 
+class UpdateVideoSettingsRequest(BaseModel):
+    """Request to update video settings."""
+    aspect_ratio: Literal["16:9", "9:16"] | None = None
+    duration_seconds: Literal[4, 6, 8] | None = None
+    resolution: Literal["720p", "1080p"] | None = None
+    generate_audio: bool | None = None
+    negative_prompt: str | None = None
+    person_generation: Literal["allow_adult", "dont_allow"] | None = None
+    seed: int | None = None
+
+
 class UpdateSettingsRequest(BaseModel):
     """Request to update generation settings."""
     chat: UpdateChatSettingsRequest | None = None
     image: UpdateImageSettingsRequest | None = None
+    video: UpdateVideoSettingsRequest | None = None
 
 
 class SettingValueResponse(BaseModel):
     """Response for a single setting value."""
     name: str
-    category: Literal["chat", "image"]
+    category: Literal["chat", "image", "video"]
     setting: str
     value: Any
     description: str
@@ -123,6 +148,16 @@ IMAGE_SETTING_DESCRIPTIONS = {
     "temperature": "Controls randomness/creativity in image generation (0.0-2.0)",
     "person_generation": "Whether to allow generating people/faces",
     "safety_settings": "Content safety filter settings",
+}
+
+VIDEO_SETTING_DESCRIPTIONS = {
+    "aspect_ratio": "Output video aspect ratio (16:9 for landscape, 9:16 for portrait)",
+    "duration_seconds": "Video duration in seconds (4, 6, or 8)",
+    "resolution": "Video resolution (720p or 1080p)",
+    "generate_audio": "Whether to generate audio with the video",
+    "negative_prompt": "What to exclude from generated videos",
+    "person_generation": "Person generation policy (allow_adult or dont_allow)",
+    "seed": "Seed for reproducible video generation (0-4294967295)",
 }
 
 
@@ -157,6 +192,15 @@ def _settings_to_response(settings: GenerationSettings) -> GenerationSettingsRes
             temperature=settings.image.temperature,
             person_generation=settings.image.person_generation,
             safety_settings=image_safety,
+        ),
+        video=VideoSettingsModel(
+            aspect_ratio=settings.video.aspect_ratio,
+            duration_seconds=settings.video.duration_seconds,
+            resolution=settings.video.resolution,
+            generate_audio=settings.video.generate_audio,
+            negative_prompt=settings.video.negative_prompt,
+            person_generation=settings.video.person_generation,
+            seed=settings.video.seed,
         ),
         created_at=settings.created_at.isoformat(),
         updated_at=settings.updated_at.isoformat(),
@@ -206,7 +250,17 @@ async def list_available_settings() -> dict[str, Any]:
             }
             for name, desc in IMAGE_SETTING_DESCRIPTIONS.items()
         },
-        "valid_aspect_ratios": list(ImageSettings.VALID_ASPECT_RATIOS),
+        "video": {
+            name: {
+                "description": desc,
+                "type": _get_setting_type("video", name),
+            }
+            for name, desc in VIDEO_SETTING_DESCRIPTIONS.items()
+        },
+        "valid_image_aspect_ratios": list(ImageSettings.VALID_ASPECT_RATIOS),
+        "valid_video_aspect_ratios": ["16:9", "9:16"],
+        "valid_video_durations": [4, 6, 8],
+        "valid_video_resolutions": ["720p", "1080p"],
         "valid_harm_categories": [
             "HARM_CATEGORY_HATE_SPEECH",
             "HARM_CATEGORY_DANGEROUS_CONTENT",
@@ -236,7 +290,7 @@ def _get_setting_type(category: str, name: str) -> dict[str, Any]:
             "stop_sequences": {"type": "list[string]", "default": []},
             "safety_settings": {"type": "list[SafetySetting]"},
         }
-    else:
+    elif category == "image":
         types = {
             "aspect_ratio": {"type": "string", "default": "1:1"},
             "output_mime_type": {"type": "string", "default": "image/png"},
@@ -245,6 +299,16 @@ def _get_setting_type(category: str, name: str) -> dict[str, Any]:
             "temperature": {"type": "float", "min": 0.0, "max": 2.0, "default": 1.0},
             "person_generation": {"type": "bool", "default": True},
             "safety_settings": {"type": "list[SafetySetting]"},
+        }
+    else:  # video
+        types = {
+            "aspect_ratio": {"type": "string", "values": ["16:9", "9:16"], "default": "16:9"},
+            "duration_seconds": {"type": "int", "values": [4, 6, 8], "default": 8},
+            "resolution": {"type": "string", "values": ["720p", "1080p"], "default": "720p"},
+            "generate_audio": {"type": "bool", "default": True},
+            "negative_prompt": {"type": "string", "default": None},
+            "person_generation": {"type": "string", "values": ["allow_adult", "dont_allow"], "default": "allow_adult"},
+            "seed": {"type": "int", "min": 0, "max": 4294967295, "default": None},
         }
     return types.get(name, {"type": "unknown"})
 
@@ -363,6 +427,33 @@ async def update_settings(
                     detail=f"Invalid image setting: {str(e)}",
                 )
     
+    # Update video settings if provided
+    if request.video:
+        video_updates = {}
+        if request.video.aspect_ratio is not None:
+            video_updates["aspect_ratio"] = request.video.aspect_ratio
+        if request.video.duration_seconds is not None:
+            video_updates["duration_seconds"] = request.video.duration_seconds
+        if request.video.resolution is not None:
+            video_updates["resolution"] = request.video.resolution
+        if request.video.generate_audio is not None:
+            video_updates["generate_audio"] = request.video.generate_audio
+        if request.video.negative_prompt is not None:
+            video_updates["negative_prompt"] = request.video.negative_prompt
+        if request.video.person_generation is not None:
+            video_updates["person_generation"] = request.video.person_generation
+        if request.video.seed is not None:
+            video_updates["seed"] = request.video.seed
+        
+        if video_updates:
+            try:
+                settings.update_video(**video_updates)
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid video setting: {str(e)}",
+                )
+    
     # Save and return
     saved = await settings_repo.save(settings)
     logger.info(f"Updated settings for: {name}")
@@ -468,6 +559,57 @@ async def set_image_setting(
         setting=setting_name,
         value=getattr(settings.image, setting_name),
         description=IMAGE_SETTING_DESCRIPTIONS[setting_name],
+    )
+
+
+@router.patch("/{name}/video/{setting_name}")
+async def set_video_setting(
+    name: str,
+    setting_name: str,
+    value: Any,
+    settings_repo=Depends(get_settings_repository),
+) -> SettingValueResponse:
+    """
+    Set a single video setting value.
+    
+    Args:
+        name: Settings name (persona name or "default")
+        setting_name: Name of the setting to update
+        value: New value for the setting
+        
+    Returns:
+        Updated setting value
+    """
+    if not settings_repo:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Settings service not available",
+        )
+    
+    if setting_name not in VIDEO_SETTING_DESCRIPTIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown video setting: {setting_name}. Valid settings: {', '.join(VIDEO_SETTING_DESCRIPTIONS.keys())}",
+        )
+    
+    settings = await settings_repo.get_or_default(name)
+    
+    try:
+        settings.update_video(**{setting_name: value})
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    
+    await settings_repo.save(settings)
+    
+    return SettingValueResponse(
+        name=name,
+        category="video",
+        setting=setting_name,
+        value=getattr(settings.video, setting_name),
+        description=VIDEO_SETTING_DESCRIPTIONS[setting_name],
     )
 
 

@@ -8,6 +8,8 @@ import type { Persona, PersonaCreate, PersonaUpdate, PersonaRename } from "../ty
 import type {
   ImageGenerateRequest,
   ImageGenerateResponse,
+  VideoGenerateRequest,
+  VideoGenerateResponse,
   HealthResponse,
   ChatRequest,
   ChatResponse,
@@ -98,6 +100,12 @@ class AgentClient {
   async generateImage(data: ImageGenerateRequest): Promise<ImageGenerateResponse> {
     logger.info(`Generating image with prompt: ${data.prompt.substring(0, 50)}...`);
     return this.request<ImageGenerateResponse>("POST", "/api/images/generate", data);
+  }
+
+  // Video generation
+  async generateVideo(data: VideoGenerateRequest): Promise<VideoGenerateResponse> {
+    logger.info(`Generating video with prompt: ${data.prompt.substring(0, 50)}...`);
+    return this.request<VideoGenerateResponse>("POST", "/api/videos/generate", data);
   }
 
   // Get raw image bytes
@@ -282,7 +290,7 @@ class AgentClient {
 
   async setSingleSetting(
     name: string,
-    category: "chat" | "image",
+    category: "chat" | "image" | "video",
     settingName: string,
     value: unknown
   ): Promise<{ name: string; category: string; setting: string; value: unknown; description: string }> {

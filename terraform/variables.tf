@@ -42,6 +42,12 @@ variable "gemini_image_model" {
   default     = "gemini-3-pro-image-preview"
 }
 
+variable "veo_video_model" {
+  description = "Veo model for video generation"
+  type        = string
+  default     = "veo-3.1-fast-generate-001"
+}
+
 variable "agent_service_image" {
   description = "Docker image for agent service"
   type        = string

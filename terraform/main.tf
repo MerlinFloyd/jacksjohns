@@ -34,6 +34,7 @@ resource "google_project_service" "required_apis" {
     "iamcredentials.googleapis.com",
     "secretmanager.googleapis.com",
     "firestore.googleapis.com",
+    "storage.googleapis.com",
   ])
 
   project            = var.project_id

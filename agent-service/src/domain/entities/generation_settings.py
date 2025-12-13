@@ -127,12 +127,70 @@ class ImageSettings:
             raise ValueError("temperature must be between 0.0 and 2.0")
 
 
+# Video generation settings
+VideoAspectRatio = Literal["16:9", "9:16"]
+VideoResolution = Literal["720p", "1080p"]
+VideoDuration = Literal[4, 6, 8]
+PersonGeneration = Literal["allow_adult", "dont_allow"]
+
+
+@dataclass
+class VideoSettings:
+    """
+    Settings for video generation with Veo models.
+    
+    These settings control how videos are generated.
+    """
+    # Aspect ratio for generated videos (16:9 landscape or 9:16 portrait)
+    aspect_ratio: VideoAspectRatio = "16:9"
+    
+    # Duration in seconds (4, 6, or 8 for Veo 3.1)
+    duration_seconds: VideoDuration = 8
+    
+    # Resolution (720p or 1080p, Veo 3 only)
+    resolution: VideoResolution = "720p"
+    
+    # Generate audio with the video
+    generate_audio: bool = True
+    
+    # Negative prompt: What to exclude from generated videos
+    negative_prompt: str | None = None
+    
+    # Person generation setting
+    person_generation: PersonGeneration = "allow_adult"
+    
+    # Seed for reproducible generation (None for random)
+    seed: int | None = None
+    
+    # Valid aspect ratios for video
+    VALID_ASPECT_RATIOS: set[str] = field(default_factory=lambda: {"16:9", "9:16"}, repr=False)
+    
+    # Valid durations for Veo 3.1
+    VALID_DURATIONS: set[int] = field(default_factory=lambda: {4, 6, 8}, repr=False)
+    
+    # Valid resolutions
+    VALID_RESOLUTIONS: set[str] = field(default_factory=lambda: {"720p", "1080p"}, repr=False)
+    
+    def __post_init__(self) -> None:
+        """Validate settings after initialization."""
+        if self.aspect_ratio not in {"16:9", "9:16"}:
+            raise ValueError("aspect_ratio must be '16:9' or '9:16'")
+        if self.duration_seconds not in {4, 6, 8}:
+            raise ValueError("duration_seconds must be 4, 6, or 8")
+        if self.resolution not in {"720p", "1080p"}:
+            raise ValueError("resolution must be '720p' or '1080p'")
+        if self.person_generation not in {"allow_adult", "dont_allow"}:
+            raise ValueError("person_generation must be 'allow_adult' or 'dont_allow'")
+        if self.seed is not None and (self.seed < 0 or self.seed > 4294967295):
+            raise ValueError("seed must be between 0 and 4294967295")
+
+
 @dataclass
 class GenerationSettings:
     """
     Complete generation settings for a persona or guild.
     
-    Combines chat and image generation settings into a single
+    Combines chat, image, and video generation settings into a single
     configuration object that can be stored and retrieved.
     
     Settings are stored per-persona (by name) or as guild defaults.
@@ -145,6 +203,9 @@ class GenerationSettings:
     
     # Image generation settings
     image: ImageSettings = field(default_factory=ImageSettings)
+    
+    # Video generation settings
+    video: VideoSettings = field(default_factory=VideoSettings)
     
     # Metadata
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -170,6 +231,14 @@ class GenerationSettings:
             if hasattr(self.image, key):
                 setattr(self.image, key, value)
         self.image.__post_init__()  # Revalidate
+        self.updated_at = datetime.now(timezone.utc)
+    
+    def update_video(self, **kwargs) -> None:
+        """Update video settings with provided values."""
+        for key, value in kwargs.items():
+            if hasattr(self.video, key):
+                setattr(self.video, key, value)
+        self.video.__post_init__()  # Revalidate
         self.updated_at = datetime.now(timezone.utc)
     
     def to_dict(self) -> dict:
@@ -201,6 +270,15 @@ class GenerationSettings:
                     for s in self.image.safety_settings
                 ],
             },
+            "video": {
+                "aspect_ratio": self.video.aspect_ratio,
+                "duration_seconds": self.video.duration_seconds,
+                "resolution": self.video.resolution,
+                "generate_audio": self.video.generate_audio,
+                "negative_prompt": self.video.negative_prompt,
+                "person_generation": self.video.person_generation,
+                "seed": self.video.seed,
+            },
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
@@ -210,6 +288,7 @@ class GenerationSettings:
         """Create settings from dictionary representation."""
         chat_data = data.get("chat", {})
         image_data = data.get("image", {})
+        video_data = data.get("video", {})
         
         # Parse safety settings
         chat_safety = [
@@ -242,6 +321,16 @@ class GenerationSettings:
             safety_settings=image_safety if image_safety else ImageSettings().safety_settings,
         )
         
+        video_settings = VideoSettings(
+            aspect_ratio=video_data.get("aspect_ratio", "16:9"),
+            duration_seconds=video_data.get("duration_seconds", 8),
+            resolution=video_data.get("resolution", "720p"),
+            generate_audio=video_data.get("generate_audio", True),
+            negative_prompt=video_data.get("negative_prompt"),
+            person_generation=video_data.get("person_generation", "allow_adult"),
+            seed=video_data.get("seed"),
+        )
+        
         # Parse timestamps
         created_at = data.get("created_at")
         updated_at = data.get("updated_at")
@@ -255,6 +344,7 @@ class GenerationSettings:
             name=data["name"],
             chat=chat_settings,
             image=image_settings,
+            video=video_settings,
             created_at=created_at or datetime.now(timezone.utc),
             updated_at=updated_at or datetime.now(timezone.utc),
         )

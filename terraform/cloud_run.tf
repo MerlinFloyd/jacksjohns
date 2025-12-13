@@ -43,6 +43,16 @@ resource "google_cloud_run_v2_service" "agent_service" {
         value = var.gemini_image_model
       }
 
+      env {
+        name  = "VEO_VIDEO_MODEL"
+        value = var.veo_video_model
+      }
+
+      env {
+        name  = "VIDEO_OUTPUT_BUCKET"
+        value = google_storage_bucket.video_output.name
+      }
+
       resources {
         limits = {
           cpu    = "1000m"

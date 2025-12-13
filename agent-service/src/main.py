@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config.settings import get_settings
-from .api.routes import health_router, persona_router, image_router, chat_router, settings_router
+from .api.routes import health_router, persona_router, image_router, video_router, chat_router, settings_router
 from .api.dependencies import initialize_services
 
 # Configure logging
@@ -40,6 +40,7 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(persona_router)
 app.include_router(image_router)
+app.include_router(video_router)
 app.include_router(chat_router)
 app.include_router(settings_router)
 
@@ -54,6 +55,8 @@ async def startup_event() -> None:
     logger.info(f"Region: {settings.gcp_region}")
     logger.info(f"Gemini Model: {settings.gemini_model}")
     logger.info(f"Image Model: {settings.gemini_image_model}")
+    logger.info(f"Video Model: {settings.veo_video_model}")
+    logger.info(f"Video Output Bucket: {settings.video_output_bucket}")
     logger.info(f"Agent Engine Enabled: {settings.use_agent_engine}")
     if settings.agent_engine_id:
         logger.info(f"Agent Engine ID: {settings.agent_engine_id}")

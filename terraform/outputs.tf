@@ -29,3 +29,13 @@ output "region" {
   value       = var.region
   description = "Google Cloud Region"
 }
+
+output "video_output_bucket" {
+  value       = google_storage_bucket.video_output.name
+  description = "GCS bucket for video output storage"
+}
+
+output "video_output_bucket_url" {
+  value       = "gs://${google_storage_bucket.video_output.name}"
+  description = "GCS bucket URL for video output"
+}
