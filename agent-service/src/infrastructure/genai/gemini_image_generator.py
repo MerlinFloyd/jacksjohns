@@ -1,5 +1,6 @@
 """Gemini 2.5 Flash Image implementation of ImageGenerator."""
 
+import asyncio
 import logging
 
 from google import genai
@@ -16,6 +17,7 @@ from tenacity import (
 from ...config.settings import get_settings
 from ...domain.interfaces.image_generator import (
     GeneratedImage,
+    GeneratedImages,
     ImageGenerationError,
     ImageGenerator,
 )
@@ -68,16 +70,20 @@ class GeminiImageGenerator(ImageGenerator):
         self,
         prompt: str,
         aspect_ratio: str = "1:1",
-    ) -> GeneratedImage:
+        number_of_images: int = 1,
+        temperature: float = 1.0,
+    ) -> GeneratedImages:
         """
-        Generate an image from a text prompt using Gemini.
+        Generate one or more images from a text prompt using Gemini.
         
         Args:
             prompt: Text description of the image to generate
             aspect_ratio: Aspect ratio (e.g., "1:1", "16:9")
+            number_of_images: Number of images to generate (1-4)
+            temperature: Controls randomness (0.0-2.0, default 1.0)
             
         Returns:
-            GeneratedImage with image data and metadata
+            GeneratedImages with image data and metadata
             
         Note:
             This method implements exponential backoff retry for rate limit
@@ -85,18 +91,39 @@ class GeminiImageGenerator(ImageGenerator):
             via the IMAGE_GENERATION_MAX_RETRIES environment variable (default: 3).
             
             Retry timing: 1s -> 2s -> 4s -> 8s (max), with jitter.
+            
+            Since Gemini's generate_content API doesn't support generating multiple
+            images in a single call, we generate them sequentially when number_of_images > 1.
         """
         try:
-            return self._generate_with_retry(prompt, aspect_ratio)
+            # Clamp number_of_images to valid range
+            num_images = max(1, min(4, number_of_images))
+            
+            # Generate images sequentially (Gemini API doesn't support batch generation)
+            images: list[GeneratedImage] = []
+            for i in range(num_images):
+                logger.info(f"Generating image {i + 1}/{num_images}...")
+                image = self._generate_single_with_retry(prompt, aspect_ratio, temperature)
+                images.append(image)
+                
+                # Small delay between requests to avoid rate limiting
+                if i < num_images - 1:
+                    await asyncio.sleep(0.5)
+            
+            logger.info(f"Successfully generated {len(images)} image(s)")
+            return GeneratedImages(images=images, prompt=prompt)
+            
         except ImageGenerationError:
             raise
         except Exception as e:
             logger.error(f"Image generation failed: {e}")
             raise ImageGenerationError(f"Failed to generate image: {str(e)}", e)
 
-    def _generate_with_retry(self, prompt: str, aspect_ratio: str) -> GeneratedImage:
+    def _generate_single_with_retry(
+        self, prompt: str, aspect_ratio: str, temperature: float
+    ) -> GeneratedImage:
         """
-        Execute the image generation API call with retry logic for rate limit errors.
+        Execute a single image generation API call with retry logic for rate limit errors.
         
         Uses exponential backoff: waits 1s after first failure, then 2s, 4s, up to 8s max.
         Only retries on 429 RESOURCE_EXHAUSTED errors; other errors are raised immediately.
@@ -112,17 +139,18 @@ class GeminiImageGenerator(ImageGenerator):
         
         @retry_decorator
         def _call_api() -> GeneratedImage:
-            logger.info(f"Generating image with prompt: {prompt[:100]}...")
+            logger.info(f"Generating image with prompt: {prompt[:100]}... (temp={temperature})")
             
             # Enhance prompt to ensure image generation
             enhanced_prompt = f"Generate an image: {prompt}"
             
-            # Generate content with image modality
+            # Generate content with image modality and temperature
             response = self._client.models.generate_content(
                 model=self._model,
                 contents=enhanced_prompt,
                 config=GenerateContentConfig(
                     response_modalities=[Modality.TEXT, Modality.IMAGE],
+                    temperature=temperature,
                 ),
             )
             

@@ -28,12 +28,22 @@ class ImageGenerateRequest(BaseModel):
     )
 
 
-class ImageGenerateResponse(BaseModel):
-    """Response model for image generation (JSON format)."""
+class GeneratedImageData(BaseModel):
+    """Single generated image data."""
     image_base64: str = Field(..., description="Base64 encoded image data")
     mime_type: str = Field(..., description="Image MIME type")
-    prompt: str = Field(..., description="Original prompt")
     text_response: str | None = Field(None, description="Optional text response from model")
+
+
+class ImageGenerateResponse(BaseModel):
+    """Response model for image generation (JSON format)."""
+    images: list[GeneratedImageData] = Field(..., description="List of generated images")
+    prompt: str = Field(..., description="Original prompt")
+    
+    # Legacy fields for backward compatibility (first image only)
+    image_base64: str = Field(..., description="Base64 encoded image data (first image)")
+    mime_type: str = Field(..., description="Image MIME type (first image)")
+    text_response: str | None = Field(None, description="Optional text response from model (first image)")
 
 
 # Valid aspect ratios
@@ -48,20 +58,21 @@ async def generate_image_json(
     settings_repo=Depends(get_settings_repository),
 ) -> ImageGenerateResponse:
     """
-    Generate an image from a text prompt.
+    Generate one or more images from a text prompt.
     
-    Returns the image as base64-encoded JSON response.
+    Returns the images as base64-encoded JSON response.
     
     If persona_name is provided and the persona has an appearance defined,
     the appearance will be prepended to the prompt for better character consistency.
     
-    Uses persona-specific or default generation settings for aspect ratio and other parameters.
+    Uses persona-specific or default generation settings for aspect ratio, 
+    number_of_images, temperature, and other parameters.
     
     Args:
         request: Image generation request
         
     Returns:
-        Generated image as base64 with metadata
+        Generated images as base64 with metadata
     """
     # Get generation settings if available
     image_settings = None
@@ -77,6 +88,10 @@ async def generate_image_json(
     if aspect_ratio == "1:1" and image_settings and image_settings.aspect_ratio != "1:1":
         # Only use settings default if request used default value
         aspect_ratio = image_settings.aspect_ratio
+    
+    # Get number_of_images and temperature from settings
+    number_of_images = image_settings.number_of_images if image_settings else 1
+    temperature = image_settings.temperature if image_settings else 1.0
     
     # Validate aspect ratio
     if aspect_ratio not in VALID_ASPECT_RATIOS:
@@ -98,22 +113,39 @@ async def generate_image_json(
         final_prompt = f"{final_prompt}. Avoid: {image_settings.negative_prompt}"
     
     try:
-        logger.info(f"Generating image for prompt: {final_prompt[:50]}...")
+        logger.info(
+            f"Generating {number_of_images} image(s) for prompt: {final_prompt[:50]}... "
+            f"(temp={temperature})"
+        )
         result = await generator.generate(
             prompt=final_prompt,
             aspect_ratio=aspect_ratio,
+            number_of_images=number_of_images,
+            temperature=temperature,
         )
         
-        # Encode image to base64
-        image_base64 = base64.b64encode(result.data).decode("utf-8")
+        # Convert all images to response format
+        images_data = []
+        for img in result.images:
+            images_data.append(GeneratedImageData(
+                image_base64=base64.b64encode(img.data).decode("utf-8"),
+                mime_type=img.mime_type,
+                text_response=img.text_response,
+            ))
         
-        logger.info(f"Image generated successfully ({len(result.data)} bytes)")
+        total_bytes = sum(len(img.data) for img in result.images)
+        logger.info(f"{len(result.images)} image(s) generated successfully ({total_bytes} bytes total)")
+        
+        # Use first image for legacy fields
+        first_image = images_data[0] if images_data else None
         
         return ImageGenerateResponse(
-            image_base64=image_base64,
-            mime_type=result.mime_type,
+            images=images_data,
             prompt=result.prompt,
-            text_response=result.text_response,
+            # Legacy fields for backward compatibility
+            image_base64=first_image.image_base64 if first_image else "",
+            mime_type=first_image.mime_type if first_image else "image/png",
+            text_response=first_image.text_response if first_image else None,
         )
         
     except ImageGenerationError as e:
@@ -134,18 +166,19 @@ async def generate_image_raw(
     """
     Generate an image from a text prompt.
     
-    Returns the raw image bytes directly.
+    Returns the raw image bytes directly (first image only).
     
     If persona_name is provided and the persona has an appearance defined,
     the appearance will be prepended to the prompt for better character consistency.
     
     Uses persona-specific or default generation settings for aspect ratio and other parameters.
+    Note: This endpoint only returns the first image even if number_of_images > 1.
     
     Args:
         request: Image generation request
         
     Returns:
-        Raw image bytes
+        Raw image bytes (first image)
     """
     # Get generation settings if available
     image_settings = None
@@ -161,6 +194,9 @@ async def generate_image_raw(
     if aspect_ratio == "1:1" and image_settings and image_settings.aspect_ratio != "1:1":
         # Only use settings default if request used default value
         aspect_ratio = image_settings.aspect_ratio
+    
+    # Get temperature from settings (only generate 1 image for raw endpoint)
+    temperature = image_settings.temperature if image_settings else 1.0
     
     # Validate aspect ratio
     if aspect_ratio not in VALID_ASPECT_RATIOS:
@@ -182,20 +218,26 @@ async def generate_image_raw(
         final_prompt = f"{final_prompt}. Avoid: {image_settings.negative_prompt}"
     
     try:
-        logger.info(f"Generating raw image for prompt: {final_prompt[:50]}...")
+        logger.info(f"Generating raw image for prompt: {final_prompt[:50]}... (temp={temperature})")
         result = await generator.generate(
             prompt=final_prompt,
             aspect_ratio=aspect_ratio,
+            number_of_images=1,  # Raw endpoint only returns one image
+            temperature=temperature,
         )
         
-        logger.info(f"Raw image generated successfully ({len(result.data)} bytes)")
+        first_image = result.first
+        if not first_image:
+            raise ImageGenerationError("No image generated")
+        
+        logger.info(f"Raw image generated successfully ({len(first_image.data)} bytes)")
         
         return Response(
-            content=result.data,
-            media_type=result.mime_type,
+            content=first_image.data,
+            media_type=first_image.mime_type,
             headers={
                 "X-Prompt": request.prompt[:100],
-                "X-Text-Response": result.text_response or "",
+                "X-Text-Response": first_image.text_response or "",
             }
         )
         

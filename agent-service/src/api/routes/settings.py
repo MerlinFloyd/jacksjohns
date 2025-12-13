@@ -46,6 +46,7 @@ class ImageSettingsModel(BaseModel):
     output_mime_type: str = Field("image/png", description="Output format (image/png, image/jpeg)")
     negative_prompt: str | None = Field(None, description="What to exclude from images")
     number_of_images: int = Field(1, ge=1, le=4, description="Number of images to generate (1-4)")
+    temperature: float = Field(1.0, ge=0.0, le=2.0, description="Controls randomness/creativity (0.0-2.0)")
     person_generation: bool = Field(True, description="Allow person/face generation")
     safety_settings: list[SafetySettingModel] | None = Field(None, description="Safety settings")
 
@@ -77,6 +78,7 @@ class UpdateImageSettingsRequest(BaseModel):
     output_mime_type: str | None = None
     negative_prompt: str | None = None
     number_of_images: int | None = Field(None, ge=1, le=4)
+    temperature: float | None = Field(None, ge=0.0, le=2.0)
     person_generation: bool | None = None
     safety_settings: list[SafetySettingModel] | None = None
 
@@ -118,6 +120,7 @@ IMAGE_SETTING_DESCRIPTIONS = {
     "output_mime_type": "Output format (image/png or image/jpeg)",
     "negative_prompt": "What to exclude from generated images",
     "number_of_images": "Number of images to generate per request (1-4)",
+    "temperature": "Controls randomness/creativity in image generation (0.0-2.0)",
     "person_generation": "Whether to allow generating people/faces",
     "safety_settings": "Content safety filter settings",
 }
@@ -151,6 +154,7 @@ def _settings_to_response(settings: GenerationSettings) -> GenerationSettingsRes
             output_mime_type=settings.image.output_mime_type,
             negative_prompt=settings.image.negative_prompt,
             number_of_images=settings.image.number_of_images,
+            temperature=settings.image.temperature,
             person_generation=settings.image.person_generation,
             safety_settings=image_safety,
         ),
@@ -238,6 +242,7 @@ def _get_setting_type(category: str, name: str) -> dict[str, Any]:
             "output_mime_type": {"type": "string", "default": "image/png"},
             "negative_prompt": {"type": "string", "default": None},
             "number_of_images": {"type": "int", "min": 1, "max": 4, "default": 1},
+            "temperature": {"type": "float", "min": 0.0, "max": 2.0, "default": 1.0},
             "person_generation": {"type": "bool", "default": True},
             "safety_settings": {"type": "list[SafetySetting]"},
         }
@@ -339,6 +344,8 @@ async def update_settings(
             image_updates["negative_prompt"] = request.image.negative_prompt
         if request.image.number_of_images is not None:
             image_updates["number_of_images"] = request.image.number_of_images
+        if request.image.temperature is not None:
+            image_updates["temperature"] = request.image.temperature
         if request.image.person_generation is not None:
             image_updates["person_generation"] = request.image.person_generation
         if request.image.safety_settings is not None:

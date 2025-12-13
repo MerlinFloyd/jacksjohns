@@ -8,10 +8,18 @@ export interface ImageGenerateRequest {
   persona_name?: string;  // If provided, persona appearance will be prepended to prompt
 }
 
-export interface ImageGenerateResponse {
+export interface GeneratedImageData {
   image_base64: string;
   mime_type: string;
+  text_response?: string;
+}
+
+export interface ImageGenerateResponse {
+  images: GeneratedImageData[];
   prompt: string;
+  // Legacy fields for backward compatibility (first image)
+  image_base64: string;
+  mime_type: string;
   text_response?: string;
 }
 
@@ -129,6 +137,7 @@ export interface ImageSettingsModel {
   output_mime_type: string;
   negative_prompt: string | null;
   number_of_images: number;
+  temperature: number;
   person_generation: boolean;
   safety_settings: SafetySettingModel[];
 }
@@ -157,6 +166,7 @@ export interface UpdateImageSettings {
   output_mime_type?: string;
   negative_prompt?: string | null;
   number_of_images?: number;
+  temperature?: number;
   person_generation?: boolean;
   safety_settings?: SafetySettingModel[];
 }

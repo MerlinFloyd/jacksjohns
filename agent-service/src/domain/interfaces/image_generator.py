@@ -6,12 +6,25 @@ from dataclasses import dataclass
 
 @dataclass
 class GeneratedImage:
-    """Result of an image generation request."""
+    """Result of a single image generation."""
 
     data: bytes
     mime_type: str
     prompt: str
     text_response: str | None = None
+
+
+@dataclass
+class GeneratedImages:
+    """Result of an image generation request (may contain multiple images)."""
+
+    images: list[GeneratedImage]
+    prompt: str
+    
+    @property
+    def first(self) -> GeneratedImage | None:
+        """Get the first generated image, or None if empty."""
+        return self.images[0] if self.images else None
 
 
 class ImageGenerator(ABC):
@@ -28,16 +41,20 @@ class ImageGenerator(ABC):
         self,
         prompt: str,
         aspect_ratio: str = "1:1",
-    ) -> GeneratedImage:
+        number_of_images: int = 1,
+        temperature: float = 1.0,
+    ) -> GeneratedImages:
         """
-        Generate an image from a text prompt.
+        Generate one or more images from a text prompt.
         
         Args:
             prompt: Text description of the image to generate
             aspect_ratio: Aspect ratio (e.g., "1:1", "16:9")
+            number_of_images: Number of images to generate (1-4)
+            temperature: Controls randomness (0.0-2.0, default 1.0)
             
         Returns:
-            GeneratedImage with image data and metadata
+            GeneratedImages with image data and metadata
             
         Raises:
             ImageGenerationError: If generation fails

@@ -100,6 +100,9 @@ class ImageSettings:
     # Number of images to generate (1-4)
     number_of_images: int = 1
     
+    # Temperature: Controls randomness/creativity (0.0 = deterministic, 2.0 = very random)
+    temperature: float = 1.0
+    
     # Allow person/face generation (may require allowlist)
     person_generation: bool = True
     
@@ -120,6 +123,8 @@ class ImageSettings:
             raise ValueError(f"aspect_ratio must be one of: {', '.join(self.VALID_ASPECT_RATIOS)}")
         if not 1 <= self.number_of_images <= 4:
             raise ValueError("number_of_images must be between 1 and 4")
+        if not 0.0 <= self.temperature <= 2.0:
+            raise ValueError("temperature must be between 0.0 and 2.0")
 
 
 @dataclass
@@ -189,6 +194,7 @@ class GenerationSettings:
                 "output_mime_type": self.image.output_mime_type,
                 "negative_prompt": self.image.negative_prompt,
                 "number_of_images": self.image.number_of_images,
+                "temperature": self.image.temperature,
                 "person_generation": self.image.person_generation,
                 "safety_settings": [
                     {"category": s.category, "threshold": s.threshold}
@@ -231,6 +237,7 @@ class GenerationSettings:
             output_mime_type=image_data.get("output_mime_type", "image/png"),
             negative_prompt=image_data.get("negative_prompt"),
             number_of_images=image_data.get("number_of_images", 1),
+            temperature=image_data.get("temperature", 1.0),
             person_generation=image_data.get("person_generation", True),
             safety_settings=image_safety if image_safety else ImageSettings().safety_settings,
         )
